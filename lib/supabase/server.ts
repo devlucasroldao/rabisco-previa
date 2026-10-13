@@ -2,7 +2,7 @@ import "server-only";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export const MEDIA_BUCKET = "media";
+export { MEDIA_BUCKET } from "../media";
 
 let client: SupabaseClient | null = null;
 
