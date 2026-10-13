@@ -47,32 +47,26 @@ async function upload(publicUrl: string, folder: string): Promise<string> {
 }
 
 async function findOrCreateClient(sample: (typeof samplePresentations)[number]["client"]) {
-  const { data: existing, error: findError } = await supabase
+  // O handle é único: o upsert cria o cliente ou reaproveita o que já existe.
+  const { data: client, error } = await supabase
     .from("clients")
+    .upsert(
+      { name: sample.name, handle: sample.handle, bio: sample.bio },
+      { onConflict: "handle" },
+    )
     .select("id")
-    .eq("handle", sample.handle)
-    .order("created_at")
-    .limit(1)
-    .maybeSingle();
-  if (findError) throw new Error(`Busca do cliente falhou: ${findError.message}`);
-
-  if (existing) {
-    console.log(`Cliente @${sample.handle} já existe, reaproveitando.`);
-    return existing.id as string;
-  }
-
-  const id = randomUUID();
-  console.log(`Criando o cliente @${sample.handle}`);
-  const avatarPath = await upload(sample.avatarUrl, `clients/${id}`);
-  const { error } = await supabase.from("clients").insert({
-    id,
-    name: sample.name,
-    handle: sample.handle,
-    bio: sample.bio,
-    avatar_path: avatarPath,
-  });
+    .single();
   if (error) throw new Error(`Criação do cliente falhou: ${error.message}`);
-  return id;
+
+  console.log(`Cliente @${sample.handle}`);
+  const avatarPath = await upload(sample.avatarUrl, `clients/${client.id}`);
+  const { error: avatarError } = await supabase
+    .from("clients")
+    .update({ avatar_path: avatarPath })
+    .eq("id", client.id);
+  if (avatarError) throw new Error(`Foto do cliente falhou: ${avatarError.message}`);
+
+  return client.id as string;
 }
 
 async function main() {
