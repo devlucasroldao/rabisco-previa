@@ -40,13 +40,14 @@ create index posts_presentation_id_position_idx on public.posts (presentation_id
 
 -- Permissões e RLS ------------------------------------------------------
 
--- Os privilégios são explícitos pra não depender do padrão do projeto:
--- anon fica sem nenhum, então um select direto falha antes mesmo do RLS.
+-- O projeto foi criado com "Automatically expose new tables" desligado, então
+-- as tabelas nascem sem nenhum GRANT e os privilégios são todos explícitos.
+-- anon fica sem nenhum: um select direto falha antes mesmo do RLS.
+-- Não há sequences (os ids são uuid), então não há GRANT de sequence.
 revoke all on public.clients, public.presentations, public.posts from anon;
 grant select, insert, update, delete
   on public.clients, public.presentations, public.posts
-  to authenticated;
-grant all on public.clients, public.presentations, public.posts to service_role;
+  to authenticated, service_role;
 
 alter table public.clients enable row level security;
 alter table public.presentations enable row level security;
