@@ -37,7 +37,13 @@ Outros comandos: `pnpm build`, `pnpm start` e `pnpm lint`.
 
 ## Rodando com Supabase
 
-1. Crie um projeto no [Supabase](https://supabase.com) e copie `.env.example` para `.env.local`, preenchendo a URL, a `anon key` e a `service_role key` (Project Settings > API).
+1. Crie um projeto no [Supabase](https://supabase.com) e crie um `.env.local` na raiz com as variáveis abaixo, preenchidas com os dados do projeto (Project Settings > API):
+
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+
+   A `service_role` ignora o RLS: fica só no servidor, nunca com o prefixo `NEXT_PUBLIC_`. O `.env.local` não vai pro repositório.
 2. Aplique as migrations no projeto remoto (não precisa de Docker):
 
    ```bash
@@ -76,7 +82,7 @@ O `pnpm seed` imprime esse comando já com um caminho real.
 
 ### Deploy na Vercel
 
-Importe o repositório na Vercel (o padrão de Next.js serve, sem `vercel.json`) e cadastre as três variáveis do `.env.example`. Sem elas o deploy funciona só no modo demo.
+Importe o repositório na Vercel (o padrão de Next.js serve, sem `vercel.json`) e cadastre as três variáveis de ambiente listadas acima. Sem elas o deploy funciona só no modo demo.
 
 ## Estrutura
 
