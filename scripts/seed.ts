@@ -7,8 +7,8 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { nanoid } from "nanoid";
 import { samplePresentations } from "../lib/sample-data";
+import { newToken } from "../lib/token";
 import { loadEnv, requireEnv } from "./env";
 
 const BUCKET = "media";
@@ -76,7 +76,7 @@ async function main() {
   const clientId = await findOrCreateClient(sample.client);
 
   const presentationId = randomUUID();
-  const token = nanoid(12);
+  const token = newToken();
   const folder = `presentations/${presentationId}`;
 
   console.log(`Enviando a mídia de "${sample.title}"`);
