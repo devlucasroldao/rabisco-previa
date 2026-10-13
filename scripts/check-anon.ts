@@ -9,6 +9,7 @@ import { loadEnv, requireEnv } from "./env";
 
 const BUCKET = "media";
 const TABLES = ["clients", "presentations", "posts"];
+const MISSING_TABLE = ["PGRST205", "42P01"];
 
 loadEnv();
 
@@ -22,13 +23,16 @@ let leaks = 0;
 
 function report(ok: boolean, what: string, detail: string) {
   if (!ok) leaks++;
-  console.log(`${ok ? "OK    " : "VAZOU "} ${what}: ${detail}`);
+  console.log(`${ok ? "OK    " : "FALHOU"} ${what}: ${detail}`);
 }
 
 async function main() {
   for (const table of TABLES) {
     const { data, error } = await supabase.from(table).select("*").limit(5);
-    if (error) report(true, `select em ${table}`, `erro "${error.message}"`);
+    // Tabela inexistente não prova nada: a migration não foi aplicada.
+    if (error && MISSING_TABLE.includes(error.code)) {
+      report(false, `select em ${table}`, `a tabela não existe (${error.code}). Rode o db push antes.`);
+    } else if (error) report(true, `select em ${table}`, `erro ${error.code} "${error.message}"`);
     else report(data.length === 0, `select em ${table}`, `${data.length} linha(s)`);
   }
 
@@ -60,7 +64,7 @@ async function main() {
   }
 
   if (leaks > 0) {
-    console.error(`\n${leaks} acesso(s) indevido(s) com a anon key.`);
+    console.error(`\n${leaks} verificação(ões) falharam.`);
     process.exit(1);
   }
   console.log("\nNada acessível com a anon key.");
