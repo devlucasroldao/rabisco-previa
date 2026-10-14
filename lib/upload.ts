@@ -1,5 +1,6 @@
 import { MEDIA_BUCKET } from "./media";
 import { getSupabaseBrowser } from "./supabase/browser";
+import { getSupabasePublicEnv } from "./supabase/env";
 
 // Só roda no navegador. O arquivo vai direto pro Storage com a sessão da
 // equipe: as funções da Vercel limitam o corpo da requisição a ~4,5 MB.
@@ -18,13 +19,14 @@ export async function uploadToBucket(
   const accessToken = data.session?.access_token;
   if (!accessToken) throw new Error("Sua sessão expirou. Entre de novo.");
 
-  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/${MEDIA_BUCKET}/${path}`;
+  const env = getSupabasePublicEnv();
+  const url = `${env.url}/storage/v1/object/${MEDIA_BUCKET}/${path}`;
 
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", url);
     xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
-    xhr.setRequestHeader("apikey", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    xhr.setRequestHeader("apikey", env.anonKey);
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.setRequestHeader("x-upsert", String(upsert));
     xhr.setRequestHeader("cache-control", "max-age=3600");
