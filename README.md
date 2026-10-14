@@ -14,7 +14,7 @@ A especificação completa está em [docs/SPEC.md](docs/SPEC.md).
 
 ## Estado atual
 
-**Etapa 3 de 6: painel com login, clientes, apresentações e posts adicionados um por vez.** Ficam pra Etapa 4: upload em massa, agrupar arquivos em carrossel, reordenar posts arrastando e compressão de vídeo.
+**Etapa 4A de 6: o painel comprime o vídeo do Reels no navegador antes do envio.** Ficam pra Etapa 4B: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
 
 - `/admin`: painel da equipe, com login por e-mail e senha. Cadastra clientes, monta as apresentações e adiciona os posts (post, carrossel ou Reels)
 - `/p/<token>`: apresentação lida do Supabase, com a mídia num bucket privado servida por URL assinada (validade de 6 horas)
@@ -73,15 +73,40 @@ O painel fica em <http://localhost:3000/admin> e não tem cadastro nem "esqueci 
 - **Apresentações** (`/admin/clientes/<id>`): criar com um título, copiar o link do cliente, ver como cliente e excluir.
 - **Posts** (`/admin/apresentacoes/<id>`): um por vez. Post tem 1 imagem, carrossel tem de 2 a 10 (com subir e descer pra ordenar) e Reels tem 1 vídeo e 1 capa. A legenda aceita até 2200 caracteres.
 
-As imagens são redimensionadas no navegador pra até 1080 px de largura, em JPEG. O vídeo ainda vai sem compressão: MP4 ou MOV de até 50 MB, que é o limite por arquivo do plano gratuito do Supabase. Mande em H.264, porque o HEVC do iPhone pode não tocar no Chrome.
+As imagens são redimensionadas no navegador pra até 1080 px de largura, em JPEG. O vídeo é comprimido no navegador (veja abaixo) e o arquivo final tem que caber em 50 MB, que é o limite por arquivo do plano gratuito do Supabase.
 
 Os arquivos vão direto do navegador pro bucket, com a sessão de quem entrou, e nunca passam pelas funções do Next (a Vercel limita o corpo da requisição a cerca de 4,5 MB). O post só é gravado depois que todos os envios terminam, e o servidor confere no bucket o tipo e o tamanho de cada arquivo antes de gravar.
 
 Excluir um post, uma apresentação ou um cliente apaga primeiro os arquivos do bucket e depois a linha no banco. Excluir um post muda o número dos seguintes na tela do cliente: se o link já foi enviado, crie outra apresentação.
 
+### Compressão de vídeo
+
+Os vídeos chegam do iPhone em HEVC, passam pelo CapCut e saem em `.mov`, quase sempre acima de 50 MB. O plano gratuito do Supabase aceita 50 MB por arquivo e 1 GB no total, e o HEVC não toca em todo navegador. Por isso o painel converte o vídeo no computador de quem está montando a semana, com o [ffmpeg.wasm](https://ffmpegwasm.netlify.app), antes de enviar. Nenhum vídeo passa por rota ou action do Next e não há custo de servidor.
+
+- **Entrada:** MP4 ou MOV, em HEVC ou H.264, de até 300 MB. Acima disso o painel recusa, porque o navegador fica sem memória.
+- **Saída:** MP4 em H.264 (libx264, CRF 26, preset veryfast, `yuv420p`) com áudio AAC a 128 kbps, lado menor de 720 px (sem ampliar vídeo menor), até 30 fps e `faststart`. A rotação do iPhone é aplicada.
+- **Limite de 50 MB:** se o resultado passar disso, o painel tenta mais uma vez com CRF 30. Se ainda passar, mostra o erro.
+- **Capa:** sai de um quadro do vídeo comprimido (1 s), em JPEG de 1080 px de largura. Um controle deslizante escolhe outro quadro, e ainda dá pra enviar uma imagem.
+- **Durante a compressão:** barra de progresso, botão de cancelar e o botão de salvar bloqueado. A aba precisa ficar aberta.
+- **Se o ffmpeg não carregar** (rede, navegador) ou não conseguir converter o arquivo: o original é enviado sem compressão, com aviso, desde que tenha até 50 MB. Acima disso é erro.
+- **HDR (HLG ou PQ):** o painel detecta, converte pra SDR (BT.709) e avisa pra conferir a cor. Sem essa conversão a cor sai lavada.
+
+O ffmpeg (~32 MB) só é baixado quando alguém escolhe um vídeo, do jsDelivr, e não fica no repositório. As versões são fixas (`@ffmpeg/ffmpeg` 0.12.15 e `@ffmpeg/core` 0.12.10) e o navegador confere o SHA-384 de cada arquivo antes de usar: a lista está em `lib/ffmpeg-assets.ts`. É o núcleo de uma thread, que dispensa `SharedArrayBuffer` e os cabeçalhos COOP/COEP. O pacote `@ffmpeg/ffmpeg` do `package.json` entra só pelos tipos, porque o Turbopack não empacota o worker dele.
+
+O que esperar, medido num notebook com Edge, com amostras geradas a partir do vídeo de exemplo (o tempo cresce com a duração, e vídeo com mais movimento fica maior):
+
+| Entrada | Tamanho | Saída | Tempo |
+|---|---|---|---|
+| HEVC 1080×1920, 30 fps, 60 s | 71,6 MB | 8,8 MB | 3 min 4 s |
+| HEVC 1080×1920, 30 fps, 2 min | 236,6 MB | 17,2 MB | 4 min 17 s |
+| HEVC 2160×3840 (4K), 60 fps, 15 s | 69,4 MB | 2,4 MB | 1 min 20 s |
+| H.264 720×1280, 12 s (`public/sample/reels.mp4`) | 2,4 MB | 2,1 MB | 15 a 30 s |
+
+Limites conhecidos: uma thread só, então a conversão leva de 2 a 3 vezes a duração do vídeo; funciona em navegador de computador (não foi testado no celular); e a conversão de HDR foi conferida só com um HLG sintético, não com um vídeo HDR real do iPhone.
+
 ### Teste de ponta a ponta
 
-`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post, a tela do cliente e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
+`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post (com a compressão do vídeo, a capa automática e o envio sem compressão quando o CDN falha), a tela do cliente e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
 
 ```bash
 pnpm build
@@ -89,7 +114,9 @@ CRON_SECRET=<o-mesmo-nos-dois> pnpm start        # num terminal
 CRON_SECRET=<o-mesmo-nos-dois> pnpm test:e2e     # em outro
 ```
 
-`pnpm test` roda os testes de unidade (validação das variáveis e mensagens de erro do login), sem rede.
+O teste precisa de internet, porque a compressão baixa o ffmpeg do CDN. Com um `ffmpeg` instalado no sistema (no `PATH`), ele também gera na hora um HEVC curto em `.mov`, como o do iPhone, e confere que sai em H.264 720×1280 e toca na tela do cliente; sem ele, esse passo é pulado.
+
+`pnpm test` roda os testes de unidade (validação das variáveis, mensagens de erro do login e os limites e decisões da compressão de vídeo), sem rede.
 
 `E2E_BASE_URL` muda o endereço do app (padrão `http://localhost:3000`) e `E2E_BROWSER` muda o navegador (padrão `msedge`; use `chrome` se preferir). Sem `CRON_SECRET`, o passo do keep-alive com segredo é pulado.
 
@@ -150,6 +177,9 @@ lib/
   admin-data.ts               leituras do painel (clientes, apresentações e posts)
   media.ts                    regras de mídia: tamanhos, tipos e caminhos no bucket
   image.ts                    redimensiona imagem e avatar no navegador
+  video.ts                    comprime o vídeo com o ffmpeg.wasm e tira a capa de um quadro
+  video-rules.ts              limites e decisões da compressão (o que o pnpm test cobre)
+  ffmpeg-assets.ts            arquivos do ffmpeg no CDN, com versão e hash
   upload.ts                   envio direto do navegador pro bucket, com progresso
   token.ts                    gera o token do link (painel e seed)
   supabase/server.ts          cliente com a service_role, só no servidor
@@ -168,7 +198,7 @@ Os componentes recebem os dados por props e só `lib/data.ts` sabe de onde eles 
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres, Auth, Storage) · zod · Playwright (teste) · pnpm
+Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres, Auth, Storage) · ffmpeg.wasm · zod · Playwright (teste) · pnpm
 
 ## Sobre os dados de exemplo
 
