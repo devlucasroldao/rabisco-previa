@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { savePost } from "@/app/admin/actions";
 import type { AdminPost } from "@/lib/admin-data";
 import { resizePostImage } from "@/lib/image";
@@ -18,6 +18,21 @@ import {
   type StoredMedia,
 } from "@/lib/media";
 import { removeFromBucket, uploadToBucket } from "@/lib/upload";
+import {
+  compressVideo,
+  openVideoFrames,
+  VideoCompressionError,
+  type VideoFrames,
+} from "@/lib/video";
+import {
+  afterFailure,
+  COVER_DEFAULT_SECONDS,
+  HDR_WARNING,
+  megabytes,
+  VIDEO_INPUT_MAX_BYTES,
+  videoInputError,
+  videoInputType,
+} from "@/lib/video-rules";
 import { ProgressBar } from "./progress-bar";
 import {
   errorClass,
@@ -35,6 +50,8 @@ type Slot = {
   role: Role;
   name: string;
   file?: File;
+  // Já está no formato final (quadro do vídeo): não passa pelo redimensionamento.
+  ready?: boolean;
   path?: string;
   previewUrl: string | null;
   progress: number | null;
@@ -77,8 +94,16 @@ function newSlot(role: Role, file: File): Slot {
   };
 }
 
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+// A compressão em andamento e o resultado dela.
+type Compressing = { stage: "loading" | "encoding"; progress: number };
+type VideoResult = { originalBytes: number; finalBytes: number; warning?: string };
+
+const COMPRESSING_MESSAGE =
+  "Comprimindo no seu computador. Pode levar alguns minutos, mantenha esta aba aberta.";
+
+function clock(seconds: number): string {
+  const whole = Math.floor(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 export function PostForm({
@@ -95,6 +120,24 @@ export function PostForm({
   const [slots, setSlots] = useState<Slot[]>(() => initialSlots(post));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [compressing, setCompressing] = useState<Compressing | null>(null);
+  const [videoResult, setVideoResult] = useState<VideoResult | null>(null);
+  const [frames, setFrames] = useState<{ duration: number; at: number } | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  // O vídeo aberto pra tirar os quadros da capa.
+  const opened = useRef<VideoFrames | null>(null);
+  // Só o último quadro pedido no controle deslizante vira capa.
+  const frameRequest = useRef(0);
+  // Enquanto comprime ou envia, nada mais muda no formulário.
+  const locked = busy || compressing !== null;
+
+  useEffect(
+    () => () => {
+      abort.current?.abort();
+      opened.current?.close();
+    },
+    [],
+  );
 
   const images = slots.filter((slot) => slot.role === "image");
   const video = slots.find((slot) => slot.role === "video");
@@ -104,6 +147,105 @@ export function PostForm({
     setType(next);
     setSlots([]);
     setError(null);
+    forgetVideo();
+  }
+
+  function forgetVideo() {
+    opened.current?.close();
+    opened.current = null;
+    frameRequest.current++;
+    setFrames(null);
+    setVideoResult(null);
+  }
+
+  function replaceSlot(slot: Slot) {
+    setSlots((current) => [...current.filter((item) => item.role !== slot.role), slot]);
+  }
+
+  // Tira um quadro do vídeo e o põe como capa.
+  async function pickFrame(seconds: number) {
+    const source = opened.current;
+    if (!source) return;
+    const request = ++frameRequest.current;
+    setFrames({ duration: source.duration, at: seconds });
+    try {
+      const blob = await source.capture(seconds);
+      if (request !== frameRequest.current) return;
+      const file = new File([blob], `Quadro do vídeo em ${clock(seconds)}`, {
+        type: IMAGE_OUTPUT_TYPE,
+      });
+      replaceSlot({ ...newSlot("cover", file), ready: true });
+    } catch {
+      // Sem quadro: a capa fica como estava e dá pra enviar uma imagem.
+    }
+  }
+
+  async function chooseVideo(event: React.ChangeEvent<HTMLInputElement>) {
+    const original = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setError(null);
+    if (!original) return;
+
+    const invalid = videoInputError(original);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+
+    forgetVideo();
+    const controller = new AbortController();
+    abort.current = controller;
+    setCompressing({ stage: "loading", progress: 0 });
+
+    let file = original;
+    let warning: string | undefined;
+    try {
+      const compressed = await compressVideo(original, {
+        signal: controller.signal,
+        onStage: (stage) => setCompressing({ stage, progress: 0 }),
+        onProgress: (progress) => setCompressing({ stage: "encoding", progress }),
+      });
+      file = compressed.file;
+      if (compressed.transfer !== "sdr") warning = HDR_WARNING;
+    } catch (cause) {
+      const stage = cause instanceof VideoCompressionError ? cause.stage : "encode";
+      // Fica no console do navegador, pra quem for investigar.
+      if (stage !== "cancelled") console.error("[vídeo]", cause);
+      if (controller.signal.aborted || stage === "cancelled") {
+        setCompressing(null);
+        return;
+      }
+      if (stage === "limit") {
+        setCompressing(null);
+        setError((cause as Error).message);
+        return;
+      }
+      const decision = afterFailure(stage, original.size);
+      if (decision.action === "error") {
+        setCompressing(null);
+        setError(decision.message);
+        return;
+      }
+      warning = decision.warning;
+    }
+    if (controller.signal.aborted) return;
+
+    setCompressing(null);
+    replaceSlot(newSlot("video", file));
+    setVideoResult({ originalBytes: original.size, finalBytes: file.size, warning });
+
+    try {
+      const source = await openVideoFrames(file);
+      if (controller.signal.aborted) {
+        source.close();
+        return;
+      }
+      opened.current = source;
+      await pickFrame(Math.min(COVER_DEFAULT_SECONDS, source.duration / 2));
+    } catch {
+      // O navegador não toca este arquivo (original em HEVC, por exemplo):
+      // a capa continua obrigatória e vem de uma imagem enviada.
+    }
   }
 
   function addImages(event: React.ChangeEvent<HTMLInputElement>) {
@@ -127,33 +269,18 @@ export function PostForm({
     setSlots((current) => [...current, ...files.map((file) => newSlot("image", file))]);
   }
 
-  function setSingle(role: "video" | "cover") {
-    return (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.currentTarget.files?.[0];
-      event.currentTarget.value = "";
-      setError(null);
-      if (!file) return;
-
-      if (role === "video") {
-        if (!VIDEO_EXTENSIONS[file.type]) {
-          setError("O vídeo precisa ser MP4 ou MOV.");
-          return;
-        }
-        if (file.size > VIDEO_MAX_BYTES) {
-          setError(
-            `O vídeo tem ${megabytes(file.size)} e o limite é ${megabytes(VIDEO_MAX_BYTES)}.`,
-          );
-          return;
-        }
-      } else if (!IMAGE_INPUT_TYPES.includes(file.type)) {
-        setError("A capa precisa ser JPG, PNG ou WebP.");
-        return;
-      }
-      setSlots((current) => [
-        ...current.filter((slot) => slot.role !== role),
-        newSlot(role, file),
-      ]);
-    };
+  function chooseCover(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setError(null);
+    if (!file) return;
+    if (!IMAGE_INPUT_TYPES.includes(file.type)) {
+      setError("A capa precisa ser JPG, PNG ou WebP.");
+      return;
+    }
+    // Um quadro ainda saindo do controle deslizante não passa por cima.
+    frameRequest.current++;
+    replaceSlot(newSlot("cover", file));
   }
 
   function move(index: number, delta: -1 | 1) {
@@ -183,6 +310,10 @@ export function PostForm({
     }
     if (type === "reels" && !video) return "Escolha o vídeo.";
     if (type === "reels" && !cover) return "Escolha a imagem de capa.";
+    // Vale pro arquivo final, comprimido ou não: é o limite do bucket.
+    if (video?.file && video.file.size > VIDEO_MAX_BYTES) {
+      return `O vídeo tem ${megabytes(video.file.size)} e o limite é ${megabytes(VIDEO_MAX_BYTES)}.`;
+    }
     if (caption.length > CAPTION_MAX_LENGTH) {
       return `A legenda aceita até ${CAPTION_MAX_LENGTH} caracteres.`;
     }
@@ -206,10 +337,10 @@ export function PostForm({
     async function send(slot: Slot): Promise<string> {
       if (!slot.file) return slot.path!;
 
-      const isVideo = slot.role === "video";
-      const body = isVideo ? slot.file : await resizePostImage(slot.file);
-      const contentType = isVideo ? slot.file.type : IMAGE_OUTPUT_TYPE;
-      const extension = isVideo ? VIDEO_EXTENSIONS[slot.file.type] : "jpg";
+      const videoType = slot.role === "video" ? videoInputType(slot.file) : null;
+      const body = videoType || slot.ready ? slot.file : await resizePostImage(slot.file);
+      const contentType = videoType ?? IMAGE_OUTPUT_TYPE;
+      const extension = videoType ? VIDEO_EXTENSIONS[videoType] : "jpg";
       const path = `${presentationFolder(presentationId)}/${crypto.randomUUID()}.${extension}`;
 
       setProgress(slot.key, 0);
@@ -262,7 +393,7 @@ export function PostForm({
           Tipo: <span className="font-medium text-foreground">{POST_TYPE_LABELS[type]}</span>
         </p>
       ) : (
-        <fieldset disabled={busy}>
+        <fieldset disabled={locked}>
           <legend className={labelClass}>Tipo</legend>
           <div className="mt-1 flex gap-4 text-[14px]">
             {(Object.keys(POST_TYPE_LABELS) as PostType[]).map((option) => (
@@ -284,28 +415,79 @@ export function PostForm({
       {type === "reels" ? (
         <>
           <p className="rounded-md bg-surface px-3 py-2 text-[13px]">
-            Envie o vídeo já em H.264 (MP4). Vídeos de iPhone costumam vir em HEVC
-            e podem não tocar no Chrome. A compressão automática chega na próxima
-            etapa.
+            O vídeo é comprimido aqui no navegador antes do envio (MP4 em H.264,
+            720p), então pode vir direto do iPhone ou do CapCut.
           </p>
           <label className={labelClass}>
-            Vídeo (MP4 ou MOV, até {megabytes(VIDEO_MAX_BYTES)})
+            Vídeo (MP4 ou MOV, até {megabytes(VIDEO_INPUT_MAX_BYTES)})
             <input
               type="file"
-              accept={Object.keys(VIDEO_EXTENSIONS).join(",")}
-              onChange={setSingle("video")}
-              disabled={busy}
+              accept={[...Object.keys(VIDEO_EXTENSIONS), ".mp4", ".mov"].join(",")}
+              onChange={chooseVideo}
+              disabled={locked}
               className={fileInputClass}
             />
           </label>
-          {video && <SlotRow slot={video} detail={video.file && megabytes(video.file.size)} />}
+          {compressing && (
+            <div className="space-y-2 rounded-md border border-line p-3">
+              <p role="status" className="text-[13px]">
+                {COMPRESSING_MESSAGE}
+              </p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  {compressing.stage === "loading" ? (
+                    <p className="text-[12px] text-muted">Carregando o compressor…</p>
+                  ) : (
+                    <ProgressBar value={compressing.progress} label="Compressão do vídeo" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => abort.current?.abort()}
+                  className={secondaryButtonClass}
+                >
+                  Cancelar compressão
+                </button>
+              </div>
+            </div>
+          )}
+          {video && !compressing && (
+            <SlotRow
+              slot={video}
+              detail={
+                videoResult
+                  ? `original ${megabytes(videoResult.originalBytes)} → final ${megabytes(videoResult.finalBytes)}`
+                  : undefined
+              }
+            />
+          )}
+          {videoResult?.warning && !compressing && (
+            <p role="status" className="text-[13px] text-amber-700 dark:text-amber-400">
+              {videoResult.warning}
+            </p>
+          )}
+          {frames && !compressing && (
+            <label className={labelClass}>
+              Quadro da capa ({clock(frames.at)} de {clock(frames.duration)})
+              <input
+                type="range"
+                min={0}
+                max={frames.duration}
+                step={0.1}
+                value={frames.at}
+                onChange={(event) => void pickFrame(Number(event.target.value))}
+                disabled={locked}
+                className="mt-1 block w-full accent-accent"
+              />
+            </label>
+          )}
           <label className={labelClass}>
             Capa (imagem)
             <input
               type="file"
               accept={IMAGE_INPUT_TYPES.join(",")}
-              onChange={setSingle("cover")}
-              disabled={busy}
+              onChange={chooseCover}
+              disabled={locked}
               className={fileInputClass}
             />
           </label>
@@ -392,7 +574,7 @@ export function PostForm({
         </p>
       )}
       <div className="flex items-center gap-3">
-        <button type="submit" disabled={busy} className={primaryButtonClass}>
+        <button type="submit" disabled={locked} className={primaryButtonClass}>
           {busy ? "Enviando…" : post ? "Salvar post" : "Adicionar"}
         </button>
         <button
