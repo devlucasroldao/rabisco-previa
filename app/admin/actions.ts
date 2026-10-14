@@ -5,6 +5,11 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
+  authErrorFields,
+  INVALID_CREDENTIALS_MESSAGE,
+  loginErrorMessage,
+} from "@/lib/auth-error";
+import {
   avatarPath,
   CAPTION_MAX_LENGTH,
   CAROUSEL_MAX_IMAGES,
@@ -19,6 +24,7 @@ import {
   VIDEO_MAX_BYTES,
   type StoredMedia,
 } from "@/lib/media";
+import { SupabaseConfigError } from "@/lib/supabase/env";
 import {
   getSupabaseSession,
   LOGIN_PATH,
@@ -91,22 +97,33 @@ export async function login(
       email: formData.get("email"),
       password: formData.get("password"),
     });
-  if (!parsed.success) return { error: "E-mail ou senha incorretos.", email };
+  if (!parsed.success) return { error: INVALID_CREDENTIALS_MESSAGE, email };
 
-  const supabase = await getSupabaseSession();
-  if (!supabase) {
-    return { error: "O Supabase não está configurado. Veja o README.", email };
+  // O log leva só status, code e name (ou a mensagem da nossa validação, que
+  // cita o nome da variável): nunca e-mail, senha, chave ou a mensagem crua.
+  let failure: unknown;
+  try {
+    const supabase = await getSupabaseSession();
+    const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    failure = error;
+  } catch (error) {
+    failure = error;
   }
-
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
-  if (error) return { error: "E-mail ou senha incorretos.", email };
+  if (failure) {
+    if (failure instanceof SupabaseConfigError) {
+      console.error(`[login] ${failure.message}`);
+    } else {
+      console.error("[login] o Supabase recusou o login", authErrorFields(failure));
+    }
+    return { error: loginErrorMessage(failure), email };
+  }
 
   redirect("/admin");
 }
 
 export async function logout() {
   const supabase = await getSupabaseSession();
-  await supabase?.auth.signOut();
+  await supabase.auth.signOut();
   redirect(LOGIN_PATH);
 }
 
