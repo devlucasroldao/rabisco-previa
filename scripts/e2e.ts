@@ -273,6 +273,7 @@ async function main() {
   let secondPresentationId = "";
   let hevcPresentationId = "";
   const oldIds: string[] = [];
+  let storyPresentationId = "";
   let recentId = "";
   const temp = mkdtempSync(path.join(os.tmpdir(), "rabisco-e2e-"));
   let actionRequest: { url: string; headers: Record<string, string>; body: Buffer } | null = null;
@@ -679,6 +680,248 @@ async function main() {
       console.log(`          medidor: ${before} MB → ${after} MB (liberados ${megabytes(freed)})`);
     });
 
+    console.log("\nStories");
+    let storyToken = "";
+    let storyBytes = 0;
+    await step("adiciona 2 stories no dia A e 1 no dia B (seleção múltipla) e o medidor sobe", async () => {
+      storyPresentationId = await createPresentation(page, clientId, "Stories E2E");
+      // Um post só: com stories, o grid aparece mesmo assim.
+      await addPost(page, 1, async () => {
+        await page.getByLabel("Imagem", { exact: true }).setInputFiles(sample("paz.jpg"));
+      });
+      const folder = `presentations/${storyPresentationId}`;
+      const postBytes = await bucketBytes(folder);
+      const before = await meterMegabytes(page);
+
+      const form = page.getByRole("form", { name: "Adicionar stories" });
+      await form.getByLabel("Dia").fill("2026-10-12");
+      await form.getByLabel(/^Artes dos stories/).setInputFiles([sample("reels-capa.jpg"), sample("avatar.jpg")]);
+      await form.getByRole("button", { name: "Adicionar stories" }).click();
+      await page.getByRole("button", { name: "Excluir o story 2" }).waitFor({ timeout: 60_000 });
+      await form.getByLabel("Dia").fill("2026-10-14");
+      await form.getByLabel(/^Artes dos stories/).setInputFiles(sample("car-4.jpg"));
+      await form.getByRole("button", { name: "Adicionar stories" }).click();
+      await page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ timeout: 60_000 });
+
+      await page.getByRole("region", { name: "Segunda, 12/10" }).getByRole("listitem").nth(1).waitFor();
+      equal(await page.getByRole("region", { name: "Segunda, 12/10" }).getByRole("listitem").count(), 2, "stories na segunda");
+      equal(await page.getByRole("region", { name: "Quarta, 14/10" }).getByRole("listitem").count(), 1, "stories na quarta");
+
+      const { data: rows } = await admin
+        .from("stories")
+        .select("day, position, path")
+        .eq("presentation_id", storyPresentationId)
+        .order("day")
+        .order("position");
+      equal(rows?.map((row) => [row.day, row.position]), [
+        ["2026-10-12", 1],
+        ["2026-10-12", 2],
+        ["2026-10-14", 1],
+      ], "dias e posições");
+      for (const row of rows ?? []) {
+        // Mesma pasta dos posts, sem subpasta.
+        assert(new RegExp(`^${folder}/[0-9a-f-]{36}\\.jpg$`).test(row.path), `caminho ${row.path}`);
+        const { width } = await jpegSize(row.path);
+        assert(width <= 1080, `${row.path} tem ${width} px`);
+      }
+      // A arte 9:16 de 1080 px fica como está; a de 320×320 não é ampliada
+      // nem recortada.
+      equal(await jpegSize(rows![0].path), { width: 1080, height: 1920 }, "story 9:16");
+      equal(await jpegSize(rows![1].path), { width: 320, height: 320 }, "story pequeno");
+      equal((await listBucket(folder)).length, 4, "arquivos na pasta (1 post + 3 stories)");
+
+      const total = await bucketBytes(folder);
+      storyBytes = total - postBytes;
+      assert(storyBytes > 0, "os stories não ocupam espaço");
+
+      // O tamanho da apresentação no painel inclui os stories.
+      await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
+      const row = page.getByRole("listitem").filter({ hasText: "Stories E2E" });
+      assert((await row.innerText()).includes(megabytes(total)), `tamanho com stories: ${await row.innerText()}`);
+
+      // E o medidor também.
+      await page.waitForFunction(
+        (limit) => {
+          const match = document.body.innerText.match(/Armazenamento: ([\d,]+) MB/);
+          return match ? Number(match[1].replace(",", ".")) >= limit : false;
+        },
+        before + storyBytes / 1024 / 1024 - 0.1,
+      );
+      console.log(`          medidor: ${before} MB → ${await meterMegabytes(page)} MB (stories ${megabytes(storyBytes)})`);
+
+      const { data } = await admin.from("presentations").select("token").eq("id", storyPresentationId).single();
+      storyToken = data?.token;
+    });
+
+    await step("/p/<token>: anel colorido, balão, contador e grid com 1 post", async () => {
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        const view = await visitor.newPage();
+        await view.goto(`${BASE_URL}/p/${storyToken}`);
+        const avatar = view.getByRole("button", { name: "Ver stories da semana (3)", exact: true });
+        await avatar.waitFor();
+        equal(await avatar.locator("[data-ring]").getAttribute("data-ring"), "novo", "anel");
+        const ring = await avatar.locator("[data-ring]").evaluate((el) => getComputedStyle(el).backgroundImage);
+        assert(ring.includes("linear-gradient"), `anel sem degradê: ${ring}`);
+        await view.getByText("Toque na foto para ver os stories da semana").waitFor();
+        await view.getByText("1 conteúdo · 3 stories · Rabisco").waitFor();
+        await view.getByRole("button", { name: "Abrir post 1, Post" }).waitFor();
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("visualizador: chips dos dias, Story N de T, assiste a todos e o anel fica cinza (também ao recarregar)", async () => {
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        const view = await visitor.newPage();
+        await view.goto(`${BASE_URL}/p/${storyToken}`);
+        await view.getByRole("button", { name: "Ver stories da semana (3)", exact: true }).click();
+        const dialog = view.getByRole("dialog");
+        await dialog.waitFor();
+        equal(new URL(view.url()).searchParams.get("story"), "1", "story na URL");
+        equal(await dialog.getAttribute("aria-label"), "Segunda, 12/10 · Story 1 de 3", "rótulo");
+        equal(await view.getByText("Toque na foto para ver os stories da semana").count(), 0, "balão aberto");
+        await dialog.getByRole("img", { name: "Story 1 de 3" }).waitFor();
+
+        await dialog.getByRole("button", { name: "Qua 14" }).click();
+        await view.waitForURL(/story=3/);
+        equal(await dialog.getAttribute("aria-label"), "Quarta, 14/10 · Story 3 de 3", "rótulo depois do chip");
+        equal(await dialog.getByRole("button", { name: "Qua 14" }).getAttribute("aria-current"), "true", "dia marcado");
+        await dialog.getByRole("button", { name: "Seg 12" }).click();
+        await view.waitForURL(/story=1/);
+
+        // Teclado: seta pra direita avança, pra esquerda volta.
+        await view.keyboard.press("ArrowRight");
+        await view.waitForURL(/story=2/);
+        await view.keyboard.press("ArrowLeft");
+        await view.waitForURL(/story=1/);
+
+        // Segurar pausa: 6 s depois, continua no mesmo story.
+        const box = (await dialog.getByRole("img", { name: "Story 1 de 3" }).boundingBox())!;
+        await view.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await view.mouse.down();
+        await view.waitForTimeout(6000);
+        equal(new URL(view.url()).searchParams.get("story"), "1", "story enquanto segura");
+        await view.mouse.up();
+
+        // Assiste a todos: 5 s cada, passando de segunda pra quarta, e fecha no fim.
+        await view.waitForURL(/story=2/, { timeout: 15_000 });
+        await view.waitForURL(/story=3/, { timeout: 15_000 });
+        await dialog.waitFor({ state: "detached", timeout: 15_000 });
+
+        const avatar = view.getByRole("button", { name: "Ver stories da semana (3, todos vistos)", exact: true });
+        await avatar.waitFor();
+        equal(await avatar.locator("[data-ring]").getAttribute("data-ring"), "visto", "anel depois de ver tudo");
+
+        await view.reload();
+        await avatar.waitFor();
+        equal(await avatar.locator("[data-ring]").getAttribute("data-ring"), "visto", "anel depois de recarregar");
+        equal(await view.getByText("Toque na foto para ver os stories da semana").count(), 0, "balão depois de ver tudo");
+
+        // Dá pra reabrir, e o Esc fecha.
+        await avatar.click();
+        await view.getByRole("dialog").waitFor();
+        await view.keyboard.press("Escape");
+        await view.getByRole("dialog").waitFor({ state: "detached" });
+        equal(new URL(view.url()).searchParams.get("story"), null, "story na URL depois do Esc");
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("sem localStorage, nada quebra: anel sempre colorido e balão sempre visível", async () => {
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        await visitor.addInitScript(() => {
+          Object.defineProperty(window, "localStorage", {
+            get() {
+              throw new Error("bloqueado");
+            },
+          });
+        });
+        const view = await visitor.newPage();
+        const errors: string[] = [];
+        view.on("pageerror", (error) => errors.push(String(error)));
+        await view.goto(`${BASE_URL}/p/${storyToken}?story=3`);
+        await view.getByRole("dialog").waitFor();
+        await view.getByRole("button", { name: "Fechar os stories" }).first().click();
+        const avatar = view.getByRole("button", { name: "Ver stories da semana (3)", exact: true });
+        await avatar.waitFor();
+        equal(await avatar.locator("[data-ring]").getAttribute("data-ring"), "novo", "anel sem localStorage");
+        await view.getByText("Toque na foto para ver os stories da semana").waitFor();
+        equal(errors, [], "erros na página");
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("com movimento reduzido, o story não avança sozinho", async () => {
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+      try {
+        const view = await visitor.newPage();
+        await view.goto(`${BASE_URL}/p/${storyToken}?story=1`);
+        await view.getByRole("dialog").waitFor();
+        await view.waitForTimeout(6500);
+        equal(new URL(view.url()).searchParams.get("story"), "1", "story depois de 6,5 s");
+        await view.getByRole("button", { name: "Próximo story" }).click();
+        await view.waitForURL(/story=2/);
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("painel: desce um story dentro do dia e muda o dia de outro", async () => {
+      await page.goto(`${BASE_URL}/admin/apresentacoes/${storyPresentationId}`);
+      const order = async () => {
+        const { data } = await admin
+          .from("stories")
+          .select("day, position, path")
+          .eq("presentation_id", storyPresentationId);
+        return [...(data ?? [])]
+          .sort((a, b) => (a.day === b.day ? a.position - b.position : a.day < b.day ? -1 : 1))
+          .map((row) => `${row.day}:${row.path}`);
+      };
+      const before = await order();
+      await page.getByRole("button", { name: "Descer o story 1" }).click();
+      for (let i = 0; i < 20 && JSON.stringify(await order()) === JSON.stringify(before); i++) {
+        await page.waitForTimeout(250);
+      }
+      const swapped = await order();
+      equal(swapped, [before[1], before[0], before[2]], "ordem depois de descer");
+
+      // Story 3 (quarta) vai pra terça: continua o 3º, agora num dia próprio.
+      await page.getByLabel("Dia do story 3").fill("2026-10-13");
+      await page.getByRole("region", { name: "Terça, 13/10" }).waitFor();
+      equal((await order())[2].split(":")[0], "2026-10-13", "dia novo do story 3");
+    });
+
+    await step("exclui um story e depois a apresentação: o bucket fica sem sobra", async () => {
+      const folder = `presentations/${storyPresentationId}`;
+      await page.goto(`${BASE_URL}/admin/apresentacoes/${storyPresentationId}`);
+      page.once("dialog", (dialog) => void dialog.accept());
+      await page.getByRole("button", { name: "Excluir o story 3" }).click();
+      await page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ state: "detached" });
+      equal((await listBucket(folder)).length, 3, "arquivos depois de excluir um story");
+      const { count } = await admin
+        .from("stories")
+        .select("id", { count: "exact", head: true })
+        .eq("presentation_id", storyPresentationId);
+      equal(count, 2, "stories no banco");
+
+      await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
+      page.once("dialog", (dialog) => void dialog.accept());
+      const row = page.getByRole("listitem").filter({ hasText: "Stories E2E" });
+      await row.getByRole("button", { name: "Excluir", exact: true }).click();
+      await row.waitFor({ state: "detached" });
+      equal(await listBucket(folder), [], "arquivos da apresentação com stories");
+      const { count: left } = await admin
+        .from("stories")
+        .select("id", { count: "exact", head: true })
+        .eq("presentation_id", storyPresentationId);
+      equal(left, 0, "stories depois de excluir a apresentação");
+    });
+
     const hevcName = "HEVC .mov gerado na hora: comprime pra H.264 720×1280 e toca no /p/<token>";
     if (spawnSync("ffmpeg", ["-version"]).status === 0) {
       await step(hevcName, async () => {
@@ -785,6 +1028,7 @@ async function main() {
         hevcPresentationId,
         ...oldIds,
         recentId,
+        storyPresentationId,
       ]
         .filter(Boolean)
         .map((item) => (item.includes("/") ? item : `presentations/${item}`));
