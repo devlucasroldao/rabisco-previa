@@ -14,7 +14,7 @@ A especificação completa está em [docs/SPEC.md](docs/SPEC.md).
 
 ## Estado atual
 
-**Etapa 4B de 6: medidor de armazenamento e limpeza das semanas antigas, depois da compressão de vídeo no navegador (4A).** Ficam pra depois: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
+**Etapa 5: stories da semana, só imagens, organizados por dia.** Antes vieram o medidor de armazenamento e a limpeza das semanas antigas (4B) e a compressão de vídeo no navegador (4A). Ficam pra depois: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
 
 - `/admin`: painel da equipe, com login por e-mail e senha. Cadastra clientes, monta as apresentações e adiciona os posts (post, carrossel ou Reels)
 - `/p/<token>`: apresentação lida do Supabase, com a mídia num bucket privado servida por URL assinada (validade de 6 horas)
@@ -79,6 +79,18 @@ Os arquivos vão direto do navegador pro bucket, com a sessão de quem entrou, e
 
 Excluir um post, uma apresentação ou um cliente apaga primeiro os arquivos do bucket e depois a linha no banco. Excluir um post muda o número dos seguintes na tela do cliente: se o link já foi enviado, crie outra apresentação.
 
+### Stories
+
+Os modelos de story da semana não aparecem no feed: cada um é uma arte 9:16 exportada do Canva, sem legenda, organizada pelo dia de publicação. O cliente só visualiza e pede ajuste pelo WhatsApp citando o número do story.
+
+- **Painel** (`/admin/apresentacoes/<id>`, seção "Stories"): escolha o dia e várias imagens de uma vez (JPG, PNG ou WebP, até 20 MB cada, no máximo 30 por apresentação). Elas entram no dia escolhido, na ordem da seleção, com barra de progresso por arquivo. As linhas só são gravadas depois que todos os envios terminam; se um falhar, os já enviados são apagados. Cada story pode subir ou descer dentro do dia, mudar de dia e ser excluído (o arquivo sai do bucket antes da linha). O número vem da ordem (dia e depois posição) e a posição no banco nunca é renumerada.
+- **Imagem:** passa pelo mesmo redimensionamento dos posts (até 1080 px de largura, sem ampliar nem recortar, JPEG 0,82, orientação EXIF, fundo branco no PNG transparente) e fica em `presentations/<id>/<uuid>.jpg`, na mesma pasta dos posts. Por isso a exclusão da apresentação, a limpeza em lote e o medidor já contam os stories.
+- **Tela do cliente:** com stories, a foto do perfil ganha um anel e vira um botão. O anel é colorido enquanto houver story não visto naquele aparelho e fica cinza quando todos foram vistos (guardado no `localStorage`, por token: cada semana começa colorida de novo). Um balão "Toque na foto para ver os stories da semana" aparece uma vez por aparelho. O contador do topo ganha "· N stories", e uma apresentação com 1 post e stories mostra o grid em vez de abrir o post direto. Se o `localStorage` estiver bloqueado, o anel fica sempre colorido, o balão sempre aparece e nada quebra.
+- **Visualizador** (`?story=N`, então voltar fecha e o link pode ser compartilhado): fundo preto, a arte inteira sem corte, barras de progresso do dia, atalhos pra cada dia ("Seg 12") e "Segunda, 12/10 · Story 3 de 8". Avança sozinho a cada 5 s; toque à direita avança, à esquerda volta, segurar pausa, deslizar pra baixo ou Esc fecha e as setas do teclado navegam. Com "reduzir movimento" ligado no aparelho, só avança manualmente.
+- **Datas:** o dia é só data, sem hora, e é formatado em UTC a partir de `YYYY-MM-DD`, pra um fuso a oeste de Greenwich não mostrar o dia anterior.
+
+O anel imita só a convenção visual dos stories: nada de logo, nome ou ícones do Instagram.
+
 ### Compressão de vídeo
 
 Os vídeos chegam do iPhone em HEVC, passam pelo CapCut e saem em `.mov`, quase sempre acima de 50 MB. O plano gratuito do Supabase aceita 50 MB por arquivo e 1 GB no total, e o HEVC não toca em todo navegador. Por isso o painel converte o vídeo no computador de quem está montando a semana, com o [ffmpeg.wasm](https://ffmpegwasm.netlify.app), antes de enviar. Nenhum vídeo passa por rota ou action do Next e não há custo de servidor.
@@ -116,7 +128,7 @@ O painel continua sem `service_role`. As somas vêm de duas funções SQL `secur
 
 ### Teste de ponta a ponta
 
-`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post (com a compressão do vídeo, a capa automática e o envio sem compressão quando o CDN falha), a tela do cliente, o tamanho e a idade das apresentações (uma delas tem o `created_at` recuado 30 dias pra ganhar o selo), a limpeza em lote com o medidor e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
+`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post (com a compressão do vídeo, a capa automática e o envio sem compressão quando o CDN falha), a tela do cliente, o tamanho e a idade das apresentações (uma delas tem o `created_at` recuado 30 dias pra ganhar o selo), a limpeza em lote com o medidor, os stories (envio em lote, anel, balão, visualizador, teclado, pausa, movimento reduzido, `localStorage` bloqueado e exclusão) e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
 
 ```bash
 pnpm build
@@ -126,7 +138,7 @@ CRON_SECRET=<o-mesmo-nos-dois> pnpm test:e2e     # em outro
 
 O teste precisa de internet, porque a compressão baixa o ffmpeg do CDN. Com um `ffmpeg` instalado no sistema (no `PATH`), ele também gera na hora um HEVC curto em `.mov`, como o do iPhone, e confere que sai em H.264 720×1280 e toca na tela do cliente; sem ele, esse passo é pulado.
 
-`pnpm test` roda os testes de unidade (validação das variáveis, mensagens de erro do login e os limites e decisões da compressão de vídeo), sem rede.
+`pnpm test` roda os testes de unidade (validação das variáveis, mensagens de erro do login, compressão de vídeo, armazenamento e as regras dos stories), sem rede.
 
 `E2E_BASE_URL` muda o endereço do app (padrão `http://localhost:3000`) e `E2E_BROWSER` muda o navegador (padrão `msedge`; use `chrome` se preferir). Sem `CRON_SECRET`, o passo do keep-alive com segredo é pulado.
 
@@ -142,7 +154,7 @@ A tela do cliente nunca fala com o banco: o servidor recebe o token, busca só a
 
 O painel não usa a `service_role`: ele lê e escreve com a `anon key` e a sessão de quem entrou, então vale o RLS de `authenticated`. Cada página e cada Server Action confere o login no servidor com `getUser()` (`requireStaff()`); o `proxy.ts` só renova a sessão e redireciona quem não entrou.
 
-Pra conferir que o público não acessa nada direto (tabelas, bucket e as funções do medidor), usando só a `anon key`:
+Pra conferir que o público não acessa nada direto (tabelas, inclusive escrever em `stories`, bucket e as funções do medidor), usando só a `anon key`:
 
 ```bash
 pnpm check:anon <caminho-de-um-arquivo-no-bucket>
@@ -180,6 +192,7 @@ components/
   presentation-view.tsx       alterna entre grid e visualizador conforme ?post=N
   profile-grid.tsx            faixa do topo, perfil, grid 3:4 e silhuetas
   post-viewer.tsx             visualizador em tela cheia (post, carrossel, Reels)
+  story-viewer.tsx            visualizador de stories em tela cheia
   carousel.tsx                carrossel com swipe, setas, contador e bolinhas
 lib/
   types.ts                    Media, Post, Client, Presentation
@@ -187,6 +200,8 @@ lib/
   admin-data.ts               leituras do painel (clientes, apresentações e posts)
   media.ts                    regras de mídia: tamanhos, tipos e caminhos no bucket
   storage-rules.ts            medidor de armazenamento, idade das apresentações e limpeza em lote
+  stories.ts                  regras dos stories: datas, numeração, avanço, anel e balão
+  story-storage.ts            stories vistos e dica dispensada no localStorage, com try/catch
   image.ts                    redimensiona imagem e avatar no navegador
   video.ts                    comprime o vídeo com o ffmpeg.wasm e tira a capa de um quadro
   video-rules.ts              limites e decisões da compressão (o que o pnpm test cobre)

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CopyLinkButton } from "@/components/admin/copy-link-button";
 import { PostsEditor } from "@/components/admin/posts-editor";
 import { PresentationTitleForm } from "@/components/admin/presentation-title-form";
+import { StoriesEditor } from "@/components/admin/stories-editor";
 import { secondaryButtonClass } from "@/components/admin/ui";
 import { getPresentation } from "@/lib/admin-data";
 
@@ -34,7 +35,7 @@ async function PresentationLoader({
       </>
     );
   }
-  const { client, posts, title, token } = presentation;
+  const { client, posts, stories, title, token } = presentation;
 
   return (
     <>
@@ -63,6 +64,11 @@ async function PresentationLoader({
       <section className="mt-10">
         <h2 className="mb-4 text-[16px] font-semibold">Posts</h2>
         <PostsEditor presentationId={presentation.id} posts={posts} />
+      </section>
+
+      <section className="mt-10">
+        <h2 className="mb-4 text-[16px] font-semibold">Stories</h2>
+        <StoriesEditor presentationId={presentation.id} stories={stories} />
       </section>
     </>
   );

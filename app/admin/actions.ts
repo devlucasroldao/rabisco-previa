@@ -26,6 +26,7 @@ import {
 } from "@/lib/media";
 import { presentationSizes } from "@/lib/admin-data";
 import { daysSince, isOld, runBatch } from "@/lib/storage-rules";
+import { isStoryDay, STORY_MAX_PER_PRESENTATION } from "@/lib/stories";
 import { SupabaseConfigError } from "@/lib/supabase/env";
 import {
   getSupabaseSession,
@@ -595,6 +596,202 @@ export async function deletePost(postId: string): Promise<ActionResult> {
     if (error) throw new Error(error.message);
   } catch (error) {
     return { error: `Não deu pra excluir o post: ${message(error)}` };
+  }
+
+  refresh();
+  return {};
+}
+
+// Stories ----------------------------------------------------------------
+
+const storyDay = z.string().refine(isStoryDay, "Escolha um dia válido.");
+
+type StoryRow = { id: string; presentation_id: string; day: string; position: number; path: string };
+
+async function readStory(supabase: SupabaseClient, storyId: string) {
+  const { data, error } = await supabase
+    .from("stories")
+    .select("id, presentation_id, day, position, path")
+    .eq("id", storyId)
+    .maybeSingle()
+    .overrideTypes<StoryRow, { merge: false }>();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function lastPosition(
+  supabase: SupabaseClient,
+  presentationId: string,
+  day: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("stories")
+    .select("position")
+    .eq("presentation_id", presentationId)
+    .eq("day", day)
+    .order("position", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return data[0]?.position ?? 0;
+}
+
+// Chamada depois que o navegador enviou todas as imagens pro bucket. As
+// linhas entram juntas, no dia escolhido, na ordem recebida.
+export async function saveStories(input: {
+  presentationId: string;
+  day: string;
+  paths: string[];
+}): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+
+  const parsed = z
+    .object({
+      presentationId: id,
+      day: storyDay,
+      paths: z.array(z.string().max(200)).min(1).max(STORY_MAX_PER_PRESENTATION),
+    })
+    .safeParse(input);
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+  const { presentationId, day, paths } = parsed.data;
+
+  try {
+    const [{ data: stories, error: storyError }, { data: posts, error: postError }] =
+      await Promise.all([
+        supabase.from("stories").select("path").eq("presentation_id", presentationId),
+        supabase
+          .from("posts")
+          .select("media")
+          .eq("presentation_id", presentationId)
+          .overrideTypes<{ media: StoredMedia[] }[], { merge: false }>(),
+      ]);
+    if (storyError) throw new Error(storyError.message);
+    if (postError) throw new Error(postError.message);
+
+    if (stories.length + paths.length > STORY_MAX_PER_PRESENTATION) {
+      return {
+        error: `Uma apresentação tem até ${STORY_MAX_PER_PRESENTATION} stories (já tem ${stories.length}).`,
+      };
+    }
+    if (new Set(paths).size !== paths.length) return { error: "Há arquivos repetidos." };
+
+    const taken = new Set([
+      ...stories.map((story) => story.path),
+      ...posts.flatMap((post) => mediaPaths(post.media)),
+    ]);
+    // listFolder só devolve o que está em presentations/{id}/: caminho de
+    // fora da pasta cai no "não chegou no bucket".
+    const files = await listFolder(supabase, presentationFolder(presentationId));
+    for (const path of paths) {
+      if (taken.has(path)) return { error: "Uma das imagens já está em uso." };
+      const file = files.get(path);
+      if (!file) return { error: "Uma das imagens não chegou no bucket. Tente de novo." };
+      if (file.mimetype !== IMAGE_OUTPUT_TYPE) return { error: "As imagens precisam ser JPEG." };
+      if (file.size > IMAGE_MAX_BYTES) return { error: "Uma das imagens é grande demais." };
+    }
+
+    const start = await lastPosition(supabase, presentationId, day);
+    const { error } = await supabase.from("stories").insert(
+      paths.map((path, index) => ({
+        presentation_id: presentationId,
+        day,
+        position: start + index + 1,
+        path,
+      })),
+    );
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    return { error: `Não deu pra salvar os stories: ${message(error)}` };
+  }
+
+  refresh();
+  return {};
+}
+
+// Troca a position com o vizinho do mesmo dia. Nada é renumerado: o número
+// exibido vem da ordem.
+export async function moveStory(storyId: string, direction: -1 | 1): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(storyId).success || ![-1, 1].includes(direction)) {
+    return { error: "Story inválido." };
+  }
+
+  try {
+    const story = await readStory(supabase, storyId);
+    if (!story) return { error: "Este story não existe mais." };
+
+    const { data: sameDay, error } = await supabase
+      .from("stories")
+      .select("id, position")
+      .eq("presentation_id", story.presentation_id)
+      .eq("day", story.day)
+      .order("position");
+    if (error) throw new Error(error.message);
+
+    const index = sameDay.findIndex((item) => item.id === storyId);
+    const neighbor = sameDay[index + direction];
+    if (!neighbor) return {};
+
+    for (const [target, position] of [
+      [storyId, neighbor.position],
+      [neighbor.id, story.position],
+    ] as const) {
+      const { error: updateError } = await supabase
+        .from("stories")
+        .update({ position })
+        .eq("id", target);
+      if (updateError) throw new Error(updateError.message);
+    }
+  } catch (error) {
+    return { error: `Não deu pra mover o story: ${message(error)}` };
+  }
+
+  refresh();
+  return {};
+}
+
+// Muda o dia; o story entra no fim do dia novo.
+export async function setStoryDay(storyId: string, day: string): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(storyId).success) return { error: "Story inválido." };
+  const parsedDay = storyDay.safeParse(day);
+  if (!parsedDay.success) return { error: firstIssue(parsedDay.error) };
+
+  try {
+    const story = await readStory(supabase, storyId);
+    if (!story) return { error: "Este story não existe mais." };
+    if (story.day === parsedDay.data) return {};
+
+    const position = (await lastPosition(supabase, story.presentation_id, parsedDay.data)) + 1;
+    const { error } = await supabase
+      .from("stories")
+      .update({ day: parsedDay.data, position })
+      .eq("id", storyId);
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    return { error: `Não deu pra mudar o dia: ${message(error)}` };
+  }
+
+  refresh();
+  return {};
+}
+
+// Arquivo primeiro, depois a linha (a mesma regra dos posts).
+export async function deleteStory(storyId: string): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(storyId).success) return { error: "Story inválido." };
+
+  try {
+    const story = await readStory(supabase, storyId);
+    if (!story) return { error: "Este story não existe mais." };
+
+    // Só o que ainda existe: arquivo que já sumiu não trava a exclusão.
+    const files = await listFolder(supabase, presentationFolder(story.presentation_id));
+    await removeFiles(supabase, files.has(story.path) ? [story.path] : []);
+
+    const { error } = await supabase.from("stories").delete().eq("id", storyId);
+    if (error) throw new Error(error.message);
+  } catch (error) {
+    return { error: `Não deu pra excluir o story: ${message(error)}` };
   }
 
   refresh();

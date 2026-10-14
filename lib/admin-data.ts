@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MEDIA_BUCKET, type PostType, type StoredMedia } from "./media";
 import { daysSince, isOld } from "./storage-rules";
+import { sortStories } from "./stories";
 import { requireStaff } from "./supabase/session";
 
 const UUID_PATTERN =
@@ -229,12 +230,21 @@ export type AdminPost = {
   media: AdminMedia[];
 };
 
+export type AdminStory = {
+  id: string;
+  day: string;
+  position: number;
+  url: string | null;
+};
+
 export type AdminPresentationDetail = {
   id: string;
   title: string;
   token: string;
   client: { id: string; name: string; handle: string };
   posts: AdminPost[];
+  // Em ordem de dia e depois de position.
+  stories: AdminStory[];
 };
 
 export async function getPresentation(
@@ -246,13 +256,14 @@ export async function getPresentation(
   const { data, error } = await supabase
     .from("presentations")
     .select(
-      "id, title, token, client:clients!inner(id, name, handle), posts(id, position, type, caption, media)",
+      "id, title, token, client:clients!inner(id, name, handle), posts(id, position, type, caption, media), stories(id, day, position, path)",
     )
     .eq("id", id)
     .order("position", { referencedTable: "posts" })
     .maybeSingle()
     .overrideTypes<
-      Omit<AdminPresentationDetail, "posts"> & {
+      Omit<AdminPresentationDetail, "posts" | "stories"> & {
+        stories: { id: string; day: string; position: number; path: string }[];
         posts: {
           id: string;
           position: number;
@@ -272,7 +283,7 @@ export async function getPresentation(
       post.media.flatMap((item) =>
         item.poster ? [item.path, item.poster] : [item.path],
       ),
-    ),
+    ).concat(data.stories.map((story) => story.path)),
   );
 
   return {
@@ -294,6 +305,12 @@ export async function getPresentation(
           posterUrl: (item.poster && urls.get(item.poster)) || null,
         })),
       })),
+    stories: sortStories(data.stories).map((story) => ({
+      id: story.id,
+      day: story.day,
+      position: story.position,
+      url: urls.get(story.path) ?? null,
+    })),
   };
 }
 
