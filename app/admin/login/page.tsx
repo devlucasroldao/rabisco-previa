@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LoginForm } from "@/components/admin/login-form";
+import { CreatorCredit } from "@/components/creator-credit";
 
 export const metadata: Metadata = { title: "Entrar · Rabisco Prévia" };
 
@@ -25,12 +26,15 @@ export default function Page() {
         <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-brand-2" />
       </section>
 
-      <main className="flex items-start justify-center px-6 py-10 lg:items-center lg:py-14">
-        <div className="w-full max-w-[360px]">
+      <main className="flex flex-col items-center px-6 pt-10 lg:pt-14">
+        <div className="w-full max-w-[360px] flex-1 lg:flex lg:flex-col lg:justify-center">
           <h1 className="brand-dot text-[28px] leading-tight font-semibold">Entrar</h1>
           <p className="mt-1 text-[14px] text-fg-muted">Painel da equipe Rabisco Prévia</p>
           <LoginForm />
         </div>
+        <footer className="mt-10 pb-[max(12px,env(safe-area-inset-bottom))] text-fg-muted">
+          <CreatorCredit />
+        </footer>
       </main>
     </div>
   );

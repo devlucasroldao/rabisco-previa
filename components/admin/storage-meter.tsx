@@ -47,7 +47,7 @@ export function StorageMeter({ bytes }: { bytes: number }) {
           </span>
         )}
         <Link
-          href="/admin#apresentacoes-antigas"
+          href="/admin/armazenamento"
           className="ml-auto rounded-sm text-accent hover:underline"
         >
           Liberar espaço

@@ -53,6 +53,17 @@ const jobs: Job[] = [
     ],
   },
   {
+    // Wordmark das páginas públicas no tema escuro: creme num bloco terracota.
+    source: "wordmark-creme-sobre-terracota.png",
+    background: TERRACOTA,
+    padding: 0.14,
+    square: false,
+    outputs: [
+      { name: "wordmark-bloco-160.png", width: 160 },
+      { name: "wordmark-bloco-320.png", width: 320 },
+    ],
+  },
+  {
     // Wordmark da página "prévia não existe", sobre o creme.
     source: "wordmark-terracota-sobre-creme.png",
     background: CREME,

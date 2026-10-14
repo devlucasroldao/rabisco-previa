@@ -22,9 +22,19 @@ async function Account() {
   const email = await getStaffEmail();
   return (
     <>
-      <p className="-mt-5 mb-8 text-[14px] text-muted">{email}</p>
-      <h2 className="mb-4 text-[18px] font-semibold">Trocar a senha</h2>
-      <PasswordForm />
+      <p className="-mt-5 mb-8 text-[14px] text-fg-muted">{email}</p>
+      <section
+        aria-labelledby="trocar-senha"
+        className="max-w-[460px] rounded-lg border border-border p-5 sm:p-6"
+      >
+        <h2 id="trocar-senha" className="text-[18px] font-semibold">
+          Trocar a senha
+        </h2>
+        <p className="mt-1 mb-5 text-[13px] text-fg-muted">
+          A senha atual é conferida antes. Depois de trocar, use a nova no próximo login.
+        </p>
+        <PasswordForm />
+      </section>
     </>
   );
 }

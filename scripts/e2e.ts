@@ -21,7 +21,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { chromium, type Browser, type Page } from "playwright-core";
+import { chromium, type Browser, type Locator, type Page } from "playwright-core";
 import { megabytes } from "../lib/media";
 import { batchConfirmation } from "../lib/storage-rules";
 import { newToken } from "../lib/token";
@@ -66,6 +66,18 @@ process.on("unhandledRejection", (reason) => {
   console.log(`  aviso   promise rejeitada fora de um passo: ${reason}`);
 });
 
+// Um passo travado (promessa que nunca resolve) não pode segurar a rodada
+// inteira: depois disso ele falha e o teste segue até a limpeza.
+const STEP_TIMEOUT_MS = 5 * 60_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} passou de ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
+}
+
 async function step(
   name: string,
   fn: () => Promise<void>,
@@ -76,7 +88,7 @@ async function step(
     return;
   }
   try {
-    await fn();
+    await withTimeout(fn(), STEP_TIMEOUT_MS, "o passo");
     results.push({ name, status: "passou" });
     console.log(`  ok      ${name}`);
   } catch (error) {
@@ -187,6 +199,30 @@ async function timeDeletion(
   await done();
   const screen = Date.now() - started;
   deletionTimings.push(`${what}: action ${await action} ms, tela ${screen} ms`);
+}
+
+// Assinatura "Plataforma criada por …": link pro portfólio, em aba nova.
+async function checkCredit(scope: Page | Locator, where: string) {
+  const link = scope.getByRole("link", { name: "Lucas Roldão" });
+  equal(await link.getAttribute("href"), "https://devlucasroldao.vercel.app/", `href da assinatura (${where})`);
+  equal(await link.getAttribute("target"), "_blank", `target da assinatura (${where})`);
+  equal(await link.getAttribute("rel"), "noopener noreferrer", `rel da assinatura (${where})`);
+  const box = await link.boundingBox();
+  assert(box && box.height >= 40, `alvo da assinatura com ${box?.height} px (${where})`);
+}
+
+// As ações secundárias ficam no menu "⋯" de cada linha ou cabeçalho.
+async function menuItem(page: Page, menu: string, item: string) {
+  await page.getByRole("button", { name: menu, exact: true }).click();
+  await page.getByRole("menuitem", { name: item, exact: true }).click();
+}
+
+// Confirmação destrutiva: o dialog com o texto e o botão em vermelho.
+async function confirmDialog(page: Page, button: string, text?: string) {
+  const dialog = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: button, exact: true }) });
+  await dialog.waitFor();
+  if (text) await dialog.getByText(text, { exact: true }).waitFor();
+  await dialog.getByRole("button", { name: button, exact: true }).click();
 }
 
 // Sair e trocar a senha ficam no menu da conta, no rodapé da barra lateral.
@@ -350,6 +386,78 @@ async function main() {
   const temp = mkdtempSync(path.join(os.tmpdir(), "rabisco-e2e-"));
   let actionRequest: { url: string; headers: Record<string, string>; body: Buffer } | null = null;
 
+  // Limpeza: roda uma vez só, no fim normal, quando um passo falha e também
+  // em Ctrl+C ou SIGTERM (o timeout do terminal). Um kill forçado (SIGKILL,
+  // taskkill /F) não deixa nada rodar; aí sobra o pnpm e2e:leftovers.
+  let cleaned = false;
+  async function cleanup() {
+    if (cleaned) return;
+    cleaned = true;
+    await withTimeout(opened?.close() ?? Promise.resolve(), 15_000, "fechar o navegador").catch(() => {});
+    rmSync(temp, { recursive: true, force: true });
+
+    console.log("\nLimpeza");
+    await step("apaga os dados, os arquivos e o usuário de teste", async () => {
+      const { data: clients } = await admin
+        .from("clients")
+        .select("id, presentations(id)")
+        .eq("handle", handle);
+      const folders = [
+        clientId && `clients/${clientId}`,
+        presentationId,
+        secondPresentationId,
+        hevcPresentationId,
+        ...oldIds,
+        recentId,
+        storyPresentationId,
+        managedId,
+        reelsOnlyId,
+      ]
+        .filter(Boolean)
+        .map((item) => (item.includes("/") ? item : `presentations/${item}`));
+      for (const client of clients ?? []) {
+        folders.push(`clients/${client.id}`);
+        for (const presentation of client.presentations) {
+          folders.push(`presentations/${presentation.id}`);
+        }
+        await admin.from("clients").delete().eq("id", client.id);
+      }
+      for (const folder of new Set(folders)) {
+        const files = await listBucket(folder);
+        if (files.length > 0) await admin.storage.from(BUCKET).remove(files);
+        equal(await listBucket(folder), [], `sobra em ${folder}`);
+      }
+
+      // Usuários de rodadas que morreram antes da limpeza (só o padrão de
+      // e-mail do teste, que nenhuma pessoa usa).
+      const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
+      for (const user of users?.users ?? []) {
+        if (user.id !== userId && TEST_EMAIL.test(user.email ?? "")) {
+          await admin.auth.admin.deleteUser(user.id);
+          console.log(`          apagado também ${user.email}, de uma rodada anterior`);
+        }
+      }
+
+      const { error } = await admin.auth.admin.deleteUser(userId);
+      if (error) throw new Error(`usuário ${email} NÃO foi apagado: ${error.message}`);
+      const { data: check } = await admin.auth.admin.getUserById(userId);
+      assert(!check?.user, `usuário ${email} ainda existe`);
+
+      const { count } = await admin
+        .from("clients")
+        .select("id", { count: "exact", head: true })
+        .eq("handle", handle);
+      equal(count, 0, "clientes de teste restantes");
+    }, { independent: true });
+  }
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      console.log(`\n${signal} recebido: limpando antes de sair.`);
+      void cleanup().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
+    });
+  }
+
   try {
     const browser = await chromium.launch({ channel: process.env.E2E_BROWSER ?? "msedge" });
     opened = browser;
@@ -374,6 +482,7 @@ async function main() {
     await step("login e painel têm noindex", async () => {
       const robots = await page.locator('meta[name="robots"]').getAttribute("content");
       assert(robots?.includes("noindex"), `meta robots: ${robots}`);
+      await checkCredit(page, "login");
     });
 
     await step("senha errada mostra o erro em português", async () => {
@@ -500,7 +609,7 @@ async function main() {
           .getByLabel(/^Imagens/)
           .setInputFiles([sample("car-1.jpg"), sample("car-2.jpg"), sample("car-3.jpg")]);
         await page.getByRole("button", { name: "Descer a imagem 1" }).click();
-        const names = await page.getByRole("listitem").filter({ hasText: /car-\d\.jpg/ }).allInnerTexts();
+        const names = await page.getByRole("main").getByRole("listitem").filter({ hasText: /car-\d\.jpg/ }).allInnerTexts();
         equal(
           names.map((text) => text.match(/car-\d\.jpg/)![0]),
           ["car-2.jpg", "car-1.jpg", "car-3.jpg"],
@@ -587,9 +696,11 @@ async function main() {
         equal(await view.getByRole("button", { name: /^Abrir post/ }).count(), 3, "posts no grid");
 
         await view.getByText(COMPRESSED_NOTE).waitFor();
+        await checkCredit(view.getByRole("main"), "rodapé do grid");
 
         await view.goto(`${BASE_URL}/p/${token}?post=2`);
         await view.getByText("Post 2 de 3").waitFor();
+        await checkCredit(view.getByRole("dialog"), "visualizador de post");
         await view.getByText("Carrossel de teste").waitFor();
         await view.waitForFunction(() =>
           [...document.images].some((image) => image.naturalWidth >= 600 && image.complete),
@@ -624,6 +735,7 @@ async function main() {
     });
 
     await step("renomeia a apresentação", async () => {
+      await page.getByRole("button", { name: "Renomear a apresentação" }).click();
       await page.getByLabel("Título", { exact: true }).fill("Semana E2E editada");
       await page.getByRole("button", { name: "Salvar título" }).click();
       await page.getByText("Título salvo.").waitFor();
@@ -632,18 +744,13 @@ async function main() {
     });
 
     await step("exclui o post 2 com o aviso combinado, apaga os arquivos e não renumera", async () => {
-      let warning = "";
-      page.once("dialog", (dialog) => {
-        warning = dialog.message();
-        void dialog.accept();
-      });
+      await menuItem(page, "Ações do post 2", "Excluir");
       await timeDeletion(
         page,
         "post",
-        () => page.getByRole("button", { name: "Excluir o post 2" }).click(),
+        () => confirmDialog(page, "Excluir", DELETE_POST_WARNING),
         () => page.getByRole("button", { name: "Editar o post 3" }).waitFor({ state: "detached" }),
       );
-      equal(warning, DELETE_POST_WARNING, "texto da confirmação");
 
       const posts = await postsOf(presentationId);
       equal(posts.map((post) => post.position), [1, 3], "posições");
@@ -652,12 +759,12 @@ async function main() {
 
     await step("exclui a apresentação e o bucket fica sem arquivos dela", async () => {
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
-      page.once("dialog", (dialog) => void dialog.accept());
+      await menuItem(page, "Ações de Semana E2E editada", "Excluir");
       await timeDeletion(
         page,
         "apresentação (3 posts, 6 arquivos)",
-        () => page.getByRole("button", { name: "Excluir", exact: true }).click(),
-        () => page.getByText("Nenhuma apresentação ainda.").waitFor(),
+        () => confirmDialog(page, "Excluir"),
+        () => page.getByText("Nenhuma apresentação ainda").waitFor(),
       );
 
       equal(await listBucket(`presentations/${presentationId}`), [], "arquivos no bucket");
@@ -698,7 +805,7 @@ async function main() {
         { title: "Recente E2E", id: recentId, age: "hoje", posts: "2 posts", old: false },
       ];
       for (const item of expected) {
-        const row = page.getByRole("listitem").filter({ hasText: item.title });
+        const row = page.getByRole("main").getByRole("listitem").filter({ hasText: item.title });
         const text = await row.innerText();
         const size = megabytes(await bucketBytes(`presentations/${item.id}`));
         for (const part of [item.age, size, item.posts]) {
@@ -726,7 +833,7 @@ async function main() {
       const freed = sizes[0] + sizes[1];
       assert(freed > 0, "as apresentações antigas não têm arquivo");
 
-      await page.goto(`${BASE_URL}/admin`);
+      await page.goto(`${BASE_URL}/admin/armazenamento`);
       const before = await meterMegabytes(page);
       const client = `Teste E2E ${run}`;
       const recent = page.getByLabel(`Selecionar ${client}: Recente E2E`);
@@ -737,13 +844,7 @@ async function main() {
       await page.getByText(`2 apresentações, ${megabytes(freed)}`).waitFor();
 
       await page.getByRole("button", { name: "Apagar selecionadas" }).click();
-      const dialog = page.getByRole("alertdialog", { name: "Confirmar exclusão" });
-      equal(
-        await dialog.locator("p").innerText(),
-        batchConfirmation(sizes.map((bytes) => ({ bytes }))),
-        "texto da confirmação",
-      );
-      await dialog.getByRole("button", { name: "Apagar", exact: true }).click();
+      await confirmDialog(page, "Apagar", batchConfirmation(sizes.map((bytes) => ({ bytes }))));
       await page.getByText(`2 apresentações apagadas, ${megabytes(freed)} liberados.`).waitFor({ timeout: 60_000 });
 
       for (const item of oldIds) {
@@ -782,11 +883,11 @@ async function main() {
       await form.getByLabel("Dia").fill("2026-10-12");
       await form.getByLabel(/^Artes dos stories/).setInputFiles([sample("reels-capa.jpg"), sample("avatar.jpg")]);
       await form.getByRole("button", { name: "Adicionar stories" }).click();
-      await page.getByRole("button", { name: "Excluir o story 2" }).waitFor({ timeout: 60_000 });
+      await page.getByRole("button", { name: "Ações do story 2" }).waitFor({ timeout: 60_000 });
       await form.getByLabel("Dia").fill("2026-10-14");
       await form.getByLabel(/^Artes dos stories/).setInputFiles(sample("car-4.jpg"));
       await form.getByRole("button", { name: "Adicionar stories" }).click();
-      await page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ timeout: 60_000 });
+      await page.getByRole("button", { name: "Ações do story 3" }).waitFor({ timeout: 60_000 });
 
       await page.getByRole("region", { name: "Segunda, 12/10" }).getByRole("listitem").nth(1).waitFor();
       equal(await page.getByRole("region", { name: "Segunda, 12/10" }).getByRole("listitem").count(), 2, "stories na segunda");
@@ -821,7 +922,7 @@ async function main() {
 
       // O tamanho da apresentação no painel inclui os stories.
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
-      const row = page.getByRole("listitem").filter({ hasText: "Stories E2E" });
+      const row = page.getByRole("main").getByRole("listitem").filter({ hasText: "Stories E2E" });
       assert((await row.innerText()).includes(megabytes(total)), `tamanho com stories: ${await row.innerText()}`);
 
       // E o medidor também.
@@ -969,7 +1070,7 @@ async function main() {
           .map((row) => `${row.day}:${row.path}`);
       };
       const before = await order();
-      await page.getByRole("button", { name: "Descer o story 1" }).click();
+      await menuItem(page, "Ações do story 1", "Descer");
       for (let i = 0; i < 20 && JSON.stringify(await order()) === JSON.stringify(before); i++) {
         await page.waitForTimeout(250);
       }
@@ -977,7 +1078,9 @@ async function main() {
       equal(swapped, [before[1], before[0], before[2]], "ordem depois de descer");
 
       // Story 3 (quarta) vai pra terça: continua o 3º, agora num dia próprio.
+      await menuItem(page, "Ações do story 3", "Mover para outro dia");
       await page.getByLabel("Dia do story 3").fill("2026-10-13");
+      await page.getByRole("button", { name: "Mover", exact: true }).click();
       await page.getByRole("region", { name: "Terça, 13/10" }).waitFor();
       equal((await order())[2].split(":")[0], "2026-10-13", "dia novo do story 3");
     });
@@ -985,12 +1088,12 @@ async function main() {
     await step("exclui um story e depois a apresentação: o bucket fica sem sobra", async () => {
       const folder = `presentations/${storyPresentationId}`;
       await page.goto(`${BASE_URL}/admin/apresentacoes/${storyPresentationId}`);
-      page.once("dialog", (dialog) => void dialog.accept());
+      await menuItem(page, "Ações do story 3", "Excluir");
       await timeDeletion(
         page,
         "story",
-        () => page.getByRole("button", { name: "Excluir o story 3" }).click(),
-        () => page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ state: "detached" }),
+        () => confirmDialog(page, "Excluir"),
+        () => page.getByRole("button", { name: "Ações do story 3" }).waitFor({ state: "detached" }),
       );
       equal((await listBucket(folder)).length, 3, "arquivos depois de excluir um story");
       const { count } = await admin
@@ -1000,12 +1103,12 @@ async function main() {
       equal(count, 2, "stories no banco");
 
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
-      page.once("dialog", (dialog) => void dialog.accept());
-      const row = page.getByRole("listitem").filter({ hasText: "Stories E2E" });
+      const row = page.getByRole("main").getByRole("listitem").filter({ hasText: "Stories E2E" });
+      await menuItem(page, "Ações de Stories E2E", "Excluir");
       await timeDeletion(
         page,
         "apresentação (1 post, 2 stories)",
-        () => row.getByRole("button", { name: "Excluir", exact: true }).click(),
+        () => confirmDialog(page, "Excluir"),
         () => row.waitFor({ state: "detached" }),
       );
       equal(await listBucket(folder), [], "arquivos da apresentação com stories");
@@ -1046,13 +1149,17 @@ async function main() {
     });
 
     await step("reordena pelo botão subir", async () => {
-      await page.getByRole("button", { name: "Subir o post 3" }).click();
+      await menuItem(page, "Ações do post 3", "Subir");
       await waitForCaptions(managedId, ["Legenda B", "Legenda A", "Legenda C"]);
     });
 
     await step("reordena arrastando a alça com o mouse (simulado pelo Playwright)", async () => {
       const handle = page.getByRole("button", { name: "Arrastar o post 3" });
       const target = page.getByRole("button", { name: "Arrastar o post 1" });
+      // A alça fica travada até a reordenação anterior terminar de atualizar.
+      await page.waitForFunction(
+        () => !document.querySelector('[aria-label="Arrastar o post 3"]')?.hasAttribute("disabled"),
+      );
       const from = (await handle.boundingBox())!;
       const to = (await target.boundingBox())!;
       await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
@@ -1082,7 +1189,7 @@ async function main() {
     });
 
     await step("desativa o link: selo, aviso nos botões e /p/<token> diz que não existe", async () => {
-      await page.getByRole("button", { name: "Desativar link" }).click();
+      await menuItem(page, "Ações do link", "Desativar link");
       await page.getByText("Link desativado", { exact: true }).waitFor();
       const { data } = await admin.from("presentations").select("active").eq("id", managedId).single();
       equal(data?.active, false, "active no banco");
@@ -1095,15 +1202,15 @@ async function main() {
     });
 
     await step("reativa o link e ele volta a abrir", async () => {
-      await page.getByRole("button", { name: "Reativar link" }).click();
-      await page.getByRole("button", { name: "Desativar link" }).waitFor();
+      await menuItem(page, "Ações do link", "Reativar link");
+      await page.getByText("Link ativo", { exact: true }).first().waitFor();
       equal(await page.getByText("Link desativado", { exact: true }).count(), 0, "selo");
       assert(!(await opensAsMissing(managedToken)), "o link reativado não abre");
     });
 
     await step("regenera o link com confirmação: o antigo diz que não existe e o novo abre e copia", async () => {
       const oldToken = managedToken;
-      await page.getByRole("button", { name: "Regenerar link" }).click();
+      await menuItem(page, "Ações do link", "Regenerar link");
       await page.getByText("O link antigo deixa de funcionar. Quem o recebeu precisará do novo.").waitFor();
       await page.getByRole("button", { name: "Regenerar", exact: true }).click();
       await page.getByText(/^Link regenerado/).waitFor();
@@ -1244,6 +1351,7 @@ async function main() {
       equal((await listBucket(`presentations/${secondPresentationId}`)).length, 1, "arquivo do post");
 
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
+      await menuItem(page, "Ações do cliente", "Excluir cliente");
       const button = page.getByRole("button", { name: "Excluir cliente" });
       await page.getByLabel(/para confirmar$/).fill("outro_cliente");
       assert(await button.isDisabled(), "o botão liberou com o @ errado");
@@ -1289,59 +1397,7 @@ async function main() {
       skip("/api/cron/keepalive com o segredo", "CRON_SECRET não definido");
     }
   } finally {
-    await opened?.close();
-    rmSync(temp, { recursive: true, force: true });
-
-    console.log("\nLimpeza");
-    await step("apaga os dados, os arquivos e o usuário de teste", async () => {
-      const { data: clients } = await admin
-        .from("clients")
-        .select("id, presentations(id)")
-        .eq("handle", handle);
-      const folders = [
-        clientId && `clients/${clientId}`,
-        presentationId,
-        secondPresentationId,
-        hevcPresentationId,
-        ...oldIds,
-        recentId,
-        storyPresentationId,
-      ]
-        .filter(Boolean)
-        .map((item) => (item.includes("/") ? item : `presentations/${item}`));
-      for (const client of clients ?? []) {
-        folders.push(`clients/${client.id}`);
-        for (const presentation of client.presentations) {
-          folders.push(`presentations/${presentation.id}`);
-        }
-        await admin.from("clients").delete().eq("id", client.id);
-      }
-      for (const folder of new Set(folders)) {
-        const files = await listBucket(folder);
-        if (files.length > 0) await admin.storage.from(BUCKET).remove(files);
-        equal(await listBucket(folder), [], `sobra em ${folder}`);
-      }
-
-      // Sobras de rodadas que morreram antes da limpeza.
-      const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-      for (const user of users?.users ?? []) {
-        if (user.id !== userId && TEST_EMAIL.test(user.email ?? "")) {
-          await admin.auth.admin.deleteUser(user.id);
-          console.log(`          apagado também ${user.email}, de uma rodada anterior`);
-        }
-      }
-
-      const { error } = await admin.auth.admin.deleteUser(userId);
-      if (error) throw new Error(`usuário ${email} NÃO foi apagado: ${error.message}`);
-      const { data: check } = await admin.auth.admin.getUserById(userId);
-      assert(!check?.user, `usuário ${email} ainda existe`);
-
-      const { count } = await admin
-        .from("clients")
-        .select("id", { count: "exact", head: true })
-        .eq("handle", handle);
-      equal(count, 0, "clientes de teste restantes");
-    }, { independent: true });
+    await cleanup();
   }
 
   if (deletionTimings.length > 0) {

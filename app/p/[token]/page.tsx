@@ -1,7 +1,13 @@
 import { Suspense } from "react";
-import { Message } from "@/components/message";
+import type { Metadata } from "next";
 import { PresentationView } from "@/components/presentation-view";
+import { PublicPage } from "@/components/public-page";
 import { getPresentationByToken } from "@/lib/data";
+
+export const metadata: Metadata = {
+  title: "Rabisco Prévia",
+  robots: { index: false, follow: false },
+};
 
 export default function Page({ params }: PageProps<"/p/[token]">) {
   return (
@@ -22,7 +28,11 @@ async function PresentationLoader({
     !presentation ||
     (presentation.posts.length === 0 && presentation.stories.length === 0)
   ) {
-    return <Message title="Esta prévia não existe ou foi removida" />;
+    return (
+      <PublicPage title="Esta prévia não existe ou foi removida">
+        Confira se o link foi copiado completo ou peça um novo à Rabisco.
+      </PublicPage>
+    );
   }
 
   return <PresentationView presentation={presentation} />;

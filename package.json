@@ -13,7 +13,8 @@
     "brand:assets": "tsx scripts/brand-assets.ts",
     "check:contrast": "tsx scripts/check-contrast.ts",
     "test": "tsx --test tests/*.test.ts",
-    "test:e2e": "tsx scripts/e2e.ts"
+    "test:e2e": "tsx scripts/e2e.ts",
+    "e2e:leftovers": "tsx scripts/e2e-leftovers.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -28,6 +29,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",
+    "sonner": "2.0.8",
     "zod": "^4.6.7"
   },
   "devDependencies": {

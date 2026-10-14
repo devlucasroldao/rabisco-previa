@@ -53,24 +53,24 @@ async function PresentationLoader({
           { label: "Início", href: "/admin" },
           { label: client.name, href: `/admin/clientes/${client.id}` },
         ]}
-        actions={
-          <LinkControls
-            presentationId={presentation.id}
-            token={token}
-            active={active}
-            regenerate
-          />
-        }
-      />
-      <PresentationTitleForm id={presentation.id} title={title} />
+        titleAction={<PresentationTitleForm id={presentation.id} title={title} />}
+      >
+        <div className="mt-4">
+          <LinkControls presentationId={presentation.id} token={token} active={active} />
+        </div>
+      </PageHeader>
 
-      <section className="mt-10">
-        <h2 className="mb-4 text-[18px] font-semibold">Posts</h2>
+      <section aria-labelledby="posts" className="mt-10">
+        <h2 id="posts" className="mb-3 text-[18px] font-semibold">
+          Posts <span className="font-normal text-fg-muted">· {posts.length}</span>
+        </h2>
         <PostsEditor presentationId={presentation.id} posts={posts} />
       </section>
 
-      <section className="mt-10">
-        <h2 className="mb-4 text-[18px] font-semibold">Stories</h2>
+      <section aria-labelledby="stories" className="mt-12">
+        <h2 id="stories" className="mb-3 text-[18px] font-semibold">
+          Stories <span className="font-normal text-fg-muted">· {stories.length}</span>
+        </h2>
         <StoriesEditor presentationId={presentation.id} stories={stories} />
       </section>
     </>

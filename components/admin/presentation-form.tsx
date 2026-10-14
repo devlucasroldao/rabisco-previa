@@ -17,14 +17,14 @@ export function PresentationForm({ clientId }: { clientId: string }) {
   return (
     <form action={action} className="max-w-[520px]">
       <input type="hidden" name="clientId" value={clientId} />
-      <div className="flex items-end gap-3">
-        <label className="flex-1 text-[13px] font-medium">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="min-w-56 flex-1 text-[13px] font-semibold">
           Título da nova apresentação
           <input
             name="title"
             required
             maxLength={TITLE_MAX_LENGTH}
-            placeholder="Semana 20–26 out"
+            placeholder="ex.: Semana 20–26 out"
             className={inputClass}
           />
         </label>

@@ -1,0 +1,51 @@
+/*
+ * Páginas públicas vistas por clientes: início ("/"), link inexistente,
+ * not-found e erro. Seguem o tema do APARELHO (prefers-color-scheme), como a
+ * tela do cliente, e não o tema escolhido no painel. Tokens próprios, só
+ * dentro de .public-page (a tela do cliente em si não usa esta classe).
+ *
+ * Contraste: pnpm check:contrast também confere estes pares.
+ */
+
+.public-page {
+  color-scheme: light;
+  --pub-bg: #fdfaf7;
+  --pub-text: #2b2522;
+  --pub-muted: #6d625b;
+  --pub-link: #b04e2d;
+  --pub-dot: #f2b84b;
+  --pub-ring: #b04e2d;
+
+  background: var(--pub-bg);
+  color: var(--pub-text);
+  font-family: var(--font-brand-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  .public-page {
+    color-scheme: dark;
+    --pub-bg: #1b1715;
+    --pub-text: #f2ebe4;
+    --pub-muted: #a89c93;
+    --pub-link: #e27a56;
+    --pub-ring: #e27a56;
+  }
+}
+
+.public-page h1 {
+  font-family: var(--font-brand-display), var(--font-brand-sans), system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.public-page :focus-visible {
+  outline: 2px solid var(--pub-ring);
+  outline-offset: 2px;
+}
+
+@theme inline {
+  --color-pub-bg: var(--pub-bg);
+  --color-pub-text: var(--pub-text);
+  --color-pub-muted: var(--pub-muted);
+  --color-pub-link: var(--pub-link);
+  --color-pub-dot: var(--pub-dot);
+}

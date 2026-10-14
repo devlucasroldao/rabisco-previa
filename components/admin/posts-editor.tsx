@@ -17,13 +17,29 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useState, useTransition } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Clapperboard,
+  GalleryHorizontal,
+  GripVertical,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { useCallback, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { deletePost, reorderPosts } from "@/app/admin/actions";
 import type { AdminPost } from "@/lib/admin-data";
-import { POST_TYPE_LABELS } from "@/lib/media";
+import { POST_TYPE_LABELS, type PostType } from "@/lib/media";
 import { moveItem } from "@/lib/presentation-rules";
 import { PostForm } from "./post-form";
-import { errorClass, primaryButtonClass, secondaryButtonClass } from "./ui";
+import { ActionMenu } from "./primitives/action-menu";
+import { ConfirmDialog } from "./primitives/confirm-dialog";
+import { Dialog } from "./primitives/dialog";
+import { EmptyState } from "./primitives/empty-state";
+import { buttonClass } from "./ui";
 
 const DELETE_WARNING =
   "Os números dos posts seguintes vão mudar. Se o link já foi enviado ao cliente, crie uma nova apresentação em vez de apagar posts.";
@@ -37,11 +53,15 @@ const SCREEN_READER_INSTRUCTIONS = {
     "Pra mover o post, aperte espaço ou Enter, use as setas pra cima e pra baixo e aperte espaço ou Enter de novo pra soltar. Esc cancela.",
 };
 
-type Status =
-  | { kind: "idle" }
-  | { kind: "saving" }
-  | { kind: "saved" }
-  | { kind: "error"; message: string };
+const TYPE_ICONS: Record<PostType, React.ReactNode> = {
+  post: <ImageIcon size={14} aria-hidden="true" />,
+  carousel: <GalleryHorizontal size={14} aria-hidden="true" />,
+  reels: <Clapperboard size={14} aria-hidden="true" />,
+};
+
+// Ação que aparece no hover no desktop e fica sempre visível no toque.
+const revealClass =
+  "transition-opacity duration-(--dur-fast) [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-focus-within:opacity-100";
 
 export function PostsEditor({
   presentationId,
@@ -52,38 +72,56 @@ export function PostsEditor({
 }) {
   // Id do post em edição, "new" pro formulário de novo post, ou nada aberto.
   const [editing, setEditing] = useState<string | null>(null);
-  const close = () => setEditing(null);
+  const [formLocked, setFormLocked] = useState(false);
+  const close = useCallback(() => setEditing(null), []);
 
   // Ordem otimista: vale enquanto os posts que chegam do servidor forem os
   // mesmos de quando ela foi criada. Quando o servidor manda a lista nova
   // (depois de salvar, criar ou apagar), a dele volta a valer.
   const baseKey = posts.map((post) => post.id).join(",");
-  const [optimistic, setOptimistic] = useState<{ base: string; ids: string[] } | null>(
+  const [optimistic, setOptimistic] = useState<{ base: string; ids: string[] } | null>(null);
+  const [saving, startSaving] = useTransition();
+
+  // Exclusão: a linha fica "Excluindo…" até o servidor responder e some com
+  // a lista nova. Uma por vez.
+  const [confirmDelete, setConfirmDelete] = useState<{ post: AdminPost; number: number } | null>(
     null,
   );
-  const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const [saving, startSaving] = useTransition();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleting, startDeleting] = useTransition();
 
   const byId = new Map(posts.map((post) => [post.id, post]));
   const ordered =
     optimistic && optimistic.base === baseKey
       ? optimistic.ids.flatMap((id) => byId.get(id) ?? [])
       : posts;
+  const locked = saving || deleting;
   const ids = ordered.map((post) => post.id);
   const numberOf = (id: string) => ids.indexOf(id) + 1;
+  const editingPost = editing && editing !== "new" ? byId.get(editing) : undefined;
+
+  function remove(post: AdminPost, number: number) {
+    setConfirmDelete(null);
+    setDeletingId(post.id);
+    startDeleting(async () => {
+      const result = await deletePost(post.id);
+      setDeletingId(null);
+      if (result.error) toast.error(`O post ${number} não foi excluído.`, { description: result.error });
+      else toast.success(`Post ${number} excluído.`);
+    });
+  }
 
   function save(next: string[]) {
     if (next.join(",") === ids.join(",")) return;
     setOptimistic({ base: baseKey, ids: next });
-    setStatus({ kind: "saving" });
     startSaving(async () => {
       const result = await reorderPosts(presentationId, next);
       if (result.error) {
         // Volta pra ordem do servidor.
         setOptimistic(null);
-        setStatus({ kind: "error", message: result.error });
+        toast.error("A ordem não foi salva.", { description: result.error });
       } else {
-        setStatus({ kind: "saved" });
+        toast.success("Ordem salva", { description: ORDER_CHANGED_NOTE });
       }
     });
   }
@@ -119,160 +157,102 @@ export function PostsEditor({
 
   return (
     <div className="space-y-4">
-      {posts.length === 0 && editing !== "new" && (
-        <p className="text-[14px] text-muted">
-          Nenhum post ainda. Sem posts, o link do cliente mostra que a prévia não
-          existe.
-        </p>
-      )}
-      {ordered.length > 0 && (
+      {posts.length === 0 ? (
+        <EmptyState title="Nenhum post ainda">
+          Sem posts nem stories, o link do cliente mostra que a prévia não existe.
+        </EmptyState>
+      ) : (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={onDragEnd}
-          accessibility={{
-            announcements,
-            screenReaderInstructions: SCREEN_READER_INSTRUCTIONS,
-          }}
+          accessibility={{ announcements, screenReaderInstructions: SCREEN_READER_INSTRUCTIONS }}
         >
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <ol className="divide-y divide-line border-y border-line">
+            <ol className="divide-y divide-border border-y border-border">
               {ordered.map((post, index) => (
                 <SortablePost
                   key={post.id}
-                  id={post.id}
+                  post={post}
                   number={index + 1}
-                  // Arrastar fica parado enquanto salva ou com um post aberto.
-                  locked={saving || editing !== null}
-                  showHandle={editing !== post.id}
-                >
-                  {editing === post.id ? (
-                    <PostForm
-                      presentationId={presentationId}
-                      post={post}
-                      onDone={close}
-                    />
-                  ) : (
-                    <PostRow
-                      post={post}
-                      number={index + 1}
-                      canMoveUp={index > 0}
-                      canMoveDown={index < ordered.length - 1}
-                      locked={saving || editing !== null}
-                      onMove={(delta) => move(index, delta)}
-                      onEdit={() => setEditing(post.id)}
-                    />
-                  )}
-                </SortablePost>
+                  // Arrastar fica parado enquanto salva ou exclui.
+                  locked={locked}
+                  pending={deletingId === post.id}
+                  isFirst={index === 0}
+                  isLast={index === ordered.length - 1}
+                  onMove={(delta) => move(index, delta)}
+                  onEdit={() => setEditing(post.id)}
+                  onDelete={() => setConfirmDelete({ post, number: index + 1 })}
+                />
               ))}
             </ol>
           </SortableContext>
         </DndContext>
       )}
 
-      <div aria-live="polite" className="min-h-5 text-[13px]">
-        {status.kind === "saving" && <p className="text-muted">Salvando…</p>}
-        {status.kind === "saved" && (
-          <>
-            <p className="font-medium">Ordem salva</p>
-            <p className="text-muted">{ORDER_CHANGED_NOTE}</p>
-          </>
-        )}
-        {status.kind === "error" && (
-          <p role="alert" className={errorClass}>
-            {status.message}
-          </p>
-        )}
-      </div>
+      <button type="button" onClick={() => setEditing("new")} className={buttonClass("primary")}>
+        <Plus size={16} aria-hidden="true" />
+        Adicionar post
+      </button>
 
-      {editing === "new" ? (
-        <PostForm presentationId={presentationId} onDone={close} />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditing("new")}
-          className={primaryButtonClass}
-        >
-          Adicionar post
-        </button>
-      )}
+      <Dialog
+        open={editing !== null}
+        onClose={() => {
+          if (!formLocked) close();
+        }}
+        dismissible={!formLocked}
+        title={editingPost ? `Editar o post ${numberOf(editingPost.id)}` : "Novo post"}
+        description="Os arquivos vão direto pro armazenamento. O post só é salvo quando todos terminarem de subir."
+        variant="panel"
+      >
+        {editing !== null && (
+          <PostForm
+            // Abrir outro post recomeça o formulário do zero.
+            key={editing}
+            presentationId={presentationId}
+            post={editingPost}
+            onDone={close}
+            onLockedChange={setFormLocked}
+          />
+        )}
+      </Dialog>
+
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onClose={() => setConfirmDelete(null)}
+        title={confirmDelete ? `Excluir o post ${confirmDelete.number}?` : "Excluir o post?"}
+        description={DELETE_WARNING}
+        confirmLabel="Excluir"
+        pendingLabel="Excluindo…"
+        onConfirm={() => confirmDelete && remove(confirmDelete.post, confirmDelete.number)}
+      />
     </div>
   );
 }
 
 function SortablePost({
-  id,
-  number,
-  locked,
-  showHandle,
-  children,
-}: {
-  id: string;
-  number: number;
-  locked: boolean;
-  showHandle: boolean;
-  children: React.ReactNode;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id, disabled: locked });
-
-  return (
-    <li
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={`relative flex items-center gap-3 bg-background py-3 ${isDragging ? "z-10 shadow-lg" : ""}`}
-    >
-      {showHandle && (
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          {...attributes}
-          {...listeners}
-          disabled={locked}
-          aria-label={`Arrastar o post ${number}`}
-          className="flex h-10 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
-        >
-          <svg aria-hidden="true" width="12" height="20" viewBox="0 0 12 20" fill="currentColor">
-            <circle cx="3" cy="4" r="1.6" />
-            <circle cx="9" cy="4" r="1.6" />
-            <circle cx="3" cy="10" r="1.6" />
-            <circle cx="9" cy="10" r="1.6" />
-            <circle cx="3" cy="16" r="1.6" />
-            <circle cx="9" cy="16" r="1.6" />
-          </svg>
-        </button>
-      )}
-      <div className="min-w-0 flex-1">{children}</div>
-    </li>
-  );
-}
-
-function PostRow({
   post,
   number,
-  canMoveUp,
-  canMoveDown,
   locked,
+  pending,
+  isFirst,
+  isLast,
   onMove,
   onEdit,
+  onDelete,
 }: {
   post: AdminPost;
   number: number;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
   locked: boolean;
+  pending: boolean;
+  isFirst: boolean;
+  isLast: boolean;
   onMove: (delta: -1 | 1) => void;
   onEdit: () => void;
+  onDelete: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: post.id, disabled: locked });
 
   const first = post.media[0];
   const thumbnail = first?.kind === "video" ? first.posterUrl : first?.url;
@@ -281,73 +261,62 @@ function PostRow({
       ? `${POST_TYPE_LABELS.carousel} · ${post.media.length} imagens`
       : POST_TYPE_LABELS[post.type];
 
-  function onDelete() {
-    if (!window.confirm(DELETE_WARNING)) return;
-    setError(null);
-    startTransition(async () => {
-      const result = await deletePost(post.id);
-      if (result.error) setError(result.error);
-    });
-  }
-
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-5 text-center text-[14px] font-semibold tabular-nums">
-        {number}
-      </span>
-      <span className="block h-20 w-15 shrink-0 overflow-hidden rounded border border-line bg-surface">
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Translate.toString(transform), transition }}
+      aria-busy={pending || undefined}
+      className={`group admin-list-in relative flex items-center gap-2 bg-bg py-2.5 pr-1 transition-opacity duration-(--dur-base) sm:gap-3 ${
+        isDragging ? "z-10 rounded-lg shadow-md" : ""
+      } ${pending ? "pointer-events-none opacity-50" : ""}`}
+    >
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        disabled={locked}
+        aria-label={`Arrastar o post ${number}`}
+        className={`flex h-10 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-fg-muted hover:bg-hover active:cursor-grabbing disabled:cursor-default ${revealClass}`}
+      >
+        <GripVertical size={16} aria-hidden="true" />
+      </button>
+      <span className="w-5 shrink-0 text-center text-[14px] font-semibold tabular-nums">{number}</span>
+      <span className="block h-14 w-10 shrink-0 overflow-hidden rounded-md border border-border bg-bg-subtle sm:h-16 sm:w-12">
         {thumbnail && (
           // eslint-disable-next-line @next/next/no-img-element -- URL assinada, que expira
           <img src={thumbnail} alt="" className="h-full w-full object-cover" />
         )}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-medium">{typeLabel}</span>
-        <span className="line-clamp-2 text-[13px] whitespace-pre-line text-muted">
-          {post.caption || "Sem legenda"}
+        <span className="flex items-center gap-1.5 text-[13px] font-semibold">
+          <span className="shrink-0 text-fg-muted">{TYPE_ICONS[post.type]}</span>
+          <span className="truncate">{typeLabel}</span>
         </span>
-        {error && (
-          <span role="alert" className={`block ${errorClass}`}>
-            {error}
-          </span>
-        )}
+        <span className="line-clamp-1 text-[13px] whitespace-pre-line text-fg-muted sm:line-clamp-2">
+          {pending ? "Excluindo…" : post.caption || "Sem legenda"}
+        </span>
       </span>
-      <button
-        type="button"
-        onClick={() => onMove(-1)}
-        disabled={locked || pending || !canMoveUp}
-        aria-label={`Subir o post ${number}`}
-        className={secondaryButtonClass}
-      >
-        ↑
-      </button>
-      <button
-        type="button"
-        onClick={() => onMove(1)}
-        disabled={locked || pending || !canMoveDown}
-        aria-label={`Descer o post ${number}`}
-        className={secondaryButtonClass}
-      >
-        ↓
-      </button>
       <button
         type="button"
         onClick={onEdit}
         disabled={pending}
         aria-label={`Editar o post ${number}`}
-        className={secondaryButtonClass}
+        className={`${buttonClass("ghost")} hidden sm:inline-flex ${revealClass}`}
       >
+        <Pencil size={15} aria-hidden="true" />
         Editar
       </button>
-      <button
-        type="button"
-        onClick={onDelete}
+      <ActionMenu
+        label={`Ações do post ${number}`}
         disabled={pending}
-        aria-label={`Excluir o post ${number}`}
-        className={secondaryButtonClass}
-      >
-        {pending ? "Excluindo…" : "Excluir"}
-      </button>
-    </div>
+        actions={[
+          { label: "Editar", icon: <Pencil size={16} />, onSelect: onEdit },
+          { label: "Subir", icon: <ArrowUp size={16} />, onSelect: () => onMove(-1), disabled: locked || isFirst },
+          { label: "Descer", icon: <ArrowDown size={16} />, onSelect: () => onMove(1), disabled: locked || isLast },
+          { label: "Excluir", icon: <Trash2 size={16} />, onSelect: onDelete, danger: true, disabled: locked },
+        ]}
+      />
+    </li>
   );
 }

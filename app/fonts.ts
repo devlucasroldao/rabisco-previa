@@ -1,6 +1,7 @@
 import { Hanken_Grotesk, Open_Sans } from "next/font/google";
 
-// Fontes do painel. As variáveis entram em .admin e o theme.css monta
+// Fontes do painel e das páginas públicas (início, erro, "não existe"). As
+// variáveis entram em .admin e .public-page, que montam
 // --font-sans e --font-display a partir delas.
 
 export const bodyFont = Open_Sans({

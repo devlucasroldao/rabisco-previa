@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { House, Plus } from "lucide-react";
 import { Skeleton } from "@/components/admin/primitives/skeleton";
+import { Toaster } from "@/components/admin/primitives/toaster";
 import { AccountMenu } from "@/components/admin/shell/account-menu";
 import { ClientNav } from "@/components/admin/shell/client-nav";
 import { MobileNav } from "@/components/admin/shell/mobile-nav";
@@ -29,6 +30,7 @@ export default function Layout({ children }: LayoutProps<"/admin">) {
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-[264px] border-r border-border bg-sidebar lg:block">
         <Sidebar />
       </aside>
+      <Toaster />
       <main className="lg:pl-[264px]">
         <div className="mx-auto max-w-[960px] px-5 pt-8 pb-16 sm:px-8 lg:px-12 lg:pt-12">
           {children}

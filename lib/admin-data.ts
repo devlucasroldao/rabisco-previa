@@ -19,7 +19,19 @@ export type AdminClient = {
   avatarUrl: string | null;
 };
 
-export type AdminClientSummary = AdminClient & { presentationCount: number };
+export type AdminClientSummary = AdminClient & {
+  presentationCount: number;
+  createdAt: string | null;
+};
+
+export type RecentPresentation = {
+  id: string;
+  title: string;
+  active: boolean;
+  clientName: string;
+  postCount: number;
+  ageDays: number | null;
+};
 
 export type AdminPresentation = {
   id: string;
@@ -58,10 +70,10 @@ export async function listClients(): Promise<AdminClientSummary[]> {
 
   const { data, error } = await supabase
     .from("clients")
-    .select("id, name, handle, bio, avatar_path, presentations(count)")
+    .select("id, name, handle, bio, avatar_path, created_at, presentations(count)")
     .order("name")
     .overrideTypes<
-      (ClientRow & { presentations: { count: number }[] })[],
+      (ClientRow & { created_at: string | null; presentations: { count: number }[] })[],
       { merge: false }
     >();
   if (error) throw new Error(`Falha ao listar os clientes: ${error.message}`);
@@ -70,6 +82,40 @@ export async function listClients(): Promise<AdminClientSummary[]> {
   return data.map((row) => ({
     ...toClient(row, avatars),
     presentationCount: row.presentations[0]?.count ?? 0,
+    createdAt: row.created_at,
+  }));
+}
+
+// As apresentações mais novas de todos os clientes, pro início do painel.
+export async function listRecentPresentations(limit = 6): Promise<RecentPresentation[]> {
+  const { supabase } = await requireStaff();
+
+  const { data, error } = await supabase
+    .from("presentations")
+    .select("id, title, active, created_at, client:clients!inner(name), posts(count)")
+    .order("created_at", { ascending: false })
+    .limit(limit)
+    .overrideTypes<
+      {
+        id: string;
+        title: string;
+        active: boolean | null;
+        created_at: string | null;
+        client: { name: string };
+        posts: { count: number }[];
+      }[],
+      { merge: false }
+    >();
+  if (error) throw new Error(`Falha ao listar as apresentações: ${error.message}`);
+
+  const now = new Date();
+  return data.map((row) => ({
+    id: row.id,
+    title: row.title,
+    active: row.active !== false,
+    clientName: row.client.name,
+    postCount: row.posts[0]?.count ?? 0,
+    ageDays: daysSince(row.created_at, now),
   }));
 }
 

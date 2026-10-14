@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Carousel } from "@/components/carousel";
+import { CreatorCredit } from "@/components/creator-credit";
 import { ChevronIcon } from "@/components/icons";
 import { postTypeLabel, splitCaption } from "@/lib/post";
 import type { Client, Post } from "@/lib/types";
@@ -138,6 +139,9 @@ export function PostViewer({
               </button>
             </div>
           )}
+
+          {/* Fica fora do Reels, que é o vídeo sobreposto em tela cheia. */}
+          {post.type !== "reels" && <CreatorCredit className="mt-4 text-muted" />}
         </div>
       </div>
     </div>

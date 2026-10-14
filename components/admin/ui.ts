@@ -4,7 +4,7 @@
 export const labelClass = "block text-[13px] font-semibold text-fg";
 
 export const inputClass =
-  "mt-1 min-h-10 w-full rounded-md border border-border-strong bg-bg px-3 py-2 text-[14px] text-fg placeholder:text-fg-muted transition-colors duration-(--dur-fast) hover:border-fg-muted focus-visible:border-accent disabled:opacity-60";
+  "mt-1 min-h-10 w-full rounded-md border border-border-strong bg-bg px-3 py-2 text-[14px] font-normal text-fg placeholder:font-normal placeholder:text-fg-muted transition-colors duration-(--dur-fast) hover:border-fg-muted focus-visible:border-accent disabled:opacity-60";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 

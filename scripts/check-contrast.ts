@@ -80,6 +80,55 @@ for (const [theme, tokens] of Object.entries(themes)) {
     );
   }
 }
+// Páginas públicas e tela do cliente: seguem o tema do aparelho.
+function deviceThemes(file: string, selector: string) {
+  const text = readFileSync(file, "utf8");
+  const read = (body: string) => {
+    const tokens: Record<string, string> = {};
+    for (const match of body.matchAll(/--([\w-]+):\s*(#[0-9a-fA-F]{6})\b/g)) {
+      tokens[match[1]] = match[2].toLowerCase();
+    }
+    return tokens;
+  };
+  const lightStart = text.indexOf(`${selector} {`);
+  const light = read(text.slice(lightStart, text.indexOf("\n}", lightStart)));
+  const media = text.indexOf("@media (prefers-color-scheme: dark)");
+  const darkStart = text.indexOf(`${selector} {`, media);
+  const dark = read(text.slice(darkStart, text.indexOf("}", darkStart)));
+  return { claro: light, escuro: { ...light, ...dark } };
+}
+
+const devicePairs: [string, Record<string, Record<string, string>>, [string, string, number, string][]][] = [
+  [
+    "público",
+    deviceThemes("app/public-theme.css", ".public-page"),
+    [
+      ["pub-text", "pub-bg", 4.5, "título e texto"],
+      ["pub-muted", "pub-bg", 4.5, "apoio e assinatura"],
+      ["pub-link", "pub-bg", 4.5, "botão Tentar de novo"],
+      ["pub-ring", "pub-bg", 3, "anel de foco"],
+    ],
+  ],
+  [
+    "cliente",
+    deviceThemes("app/globals.css", ":root"),
+    [["muted", "background", 4.5, "assinatura no rodapé do grid e do post"]],
+  ],
+];
+
+for (const [scope, scopeThemes, list] of devicePairs) {
+  for (const [theme, tokens] of Object.entries(scopeThemes)) {
+    for (const [fg, bg, min, use] of list) {
+      const value = ratio(tokens[fg], tokens[bg]);
+      const ok = value >= min;
+      if (!ok) failures++;
+      console.log(
+        `${`${scope} ${theme}`.padEnd(15)} ${`--${fg} / --${bg}`.padEnd(26)} ${value.toFixed(2).padStart(5)}  ${String(min).padStart(3)}   ${(ok ? "aprovado" : "FALHOU").padEnd(10)}  ${use}`,
+      );
+    }
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} par(es) abaixo do mínimo.`);
   process.exit(1);

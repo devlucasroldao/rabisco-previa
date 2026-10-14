@@ -1,7 +1,7 @@
 /*
  * Identidade do painel (/admin): a única fonte de verdade de cor, fonte,
  * raio, sombra e movimento. Pra trocar a identidade, edite só os valores
- * deste arquivo (e as fontes em app/admin/fonts.ts).
+ * deste arquivo (e as fontes em app/fonts.ts).
  *
  * Isolamento: tudo vale dentro de .admin. A tela do cliente (/p/[token]) não
  * tem essa classe e continua com os tokens de app/globals.css, seguindo
@@ -72,7 +72,7 @@
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
   /*
-   * Fontes (carregadas por next/font em app/admin/fonts.ts).
+   * Fontes (carregadas por next/font em app/fonts.ts).
    * Títulos: Hanken Grotesk substitui a HK Sentiments, que não está no Google
    * Fonts. Pra usar a HK Sentiments com licença de web: coloque os .woff2 em
    * app/admin/fonts/, troque o Hanken_Grotesk de fonts.ts por next/font/local
@@ -273,8 +273,25 @@ html:has(.admin dialog[open]:modal) {
   }
 }
 
+.admin-panel {
+  transform: translateX(100%);
+  transition:
+    transform var(--dur-base) var(--ease),
+    overlay var(--dur-base) allow-discrete,
+    display var(--dur-base) allow-discrete;
+}
+.admin-panel[open] {
+  transform: none;
+}
+@starting-style {
+  .admin-panel[open] {
+    transform: translateX(100%);
+  }
+}
+
 .admin-dialog::backdrop,
-.admin-sheet::backdrop {
+.admin-sheet::backdrop,
+.admin-panel::backdrop {
   background: var(--overlay, rgb(43 37 34 / 0.32));
   opacity: 0;
   transition:
@@ -283,12 +300,14 @@ html:has(.admin dialog[open]:modal) {
     display var(--dur-base) allow-discrete;
 }
 .admin-dialog[open]::backdrop,
-.admin-sheet[open]::backdrop {
+.admin-sheet[open]::backdrop,
+.admin-panel[open]::backdrop {
   opacity: 1;
 }
 @starting-style {
   .admin-dialog[open]::backdrop,
-  .admin-sheet[open]::backdrop {
+  .admin-sheet[open]::backdrop,
+  .admin-panel[open]::backdrop {
     opacity: 0;
   }
 }
@@ -305,8 +324,10 @@ html:has(.admin dialog[open]:modal) {
   .admin *::after,
   .admin-dialog,
   .admin-sheet,
+  .admin-panel,
   .admin-dialog::backdrop,
-  .admin-sheet::backdrop {
+  .admin-sheet::backdrop,
+  .admin-panel::backdrop {
     animation: none !important;
     transition-property: color, background-color, border-color !important;
   }

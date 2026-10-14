@@ -1,35 +1,32 @@
 "use client";
 
+import { Trash2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { deleteClient } from "@/app/admin/actions";
-import { errorClass, inputClass, labelClass, secondaryButtonClass } from "./ui";
+import { dangerSolidButtonClass, errorClass, inputClass, labelClass } from "./ui";
 
+// Conteúdo do dialog de excluir cliente: pede o @ digitado antes de liberar.
 export function DeleteClient({ id, handle }: { id: string; handle: string }) {
   const [pending, startTransition] = useTransition();
   const [typed, setTyped] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const matches =
-    typed.trim().replace(/^@/, "").toLowerCase() === handle.toLowerCase();
+  const matches = typed.trim().replace(/^@/, "").toLowerCase() === handle.toLowerCase();
 
   function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     startTransition(async () => {
-      // Quando dá certo, a action redireciona pra lista de clientes.
+      // Quando dá certo, a action redireciona pro início.
       const result = await deleteClient({ id, confirmation: typed });
       if (result?.error) setError(result.error);
     });
   }
 
   return (
-    <form onSubmit={onSubmit} className="max-w-[520px] space-y-3">
-      <p className="text-[13px] text-muted">
-        Apaga o cliente, todas as apresentações dele, os posts e os arquivos. Os
-        links já enviados param de funcionar. Não dá pra desfazer.
-      </p>
+    <form onSubmit={onSubmit} className="space-y-4">
       <label className={labelClass}>
-        Digite <span className="font-semibold">{handle}</span> para confirmar
+        Digite <span className="font-bold">{handle}</span> para confirmar
         <input
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
@@ -44,13 +41,12 @@ export function DeleteClient({ id, handle }: { id: string; handle: string }) {
           {error}
         </p>
       )}
-      <button
-        type="submit"
-        disabled={!matches || pending}
-        className={`${secondaryButtonClass} text-red-600 dark:text-red-400`}
-      >
-        {pending ? "Excluindo…" : "Excluir cliente"}
-      </button>
+      <div className="flex justify-end">
+        <button type="submit" disabled={!matches || pending} className={dangerSolidButtonClass}>
+          <Trash2 size={16} aria-hidden="true" />
+          {pending ? "Excluindo…" : "Excluir cliente"}
+        </button>
+      </div>
     </form>
   );
 }
