@@ -1,5 +1,5 @@
-// Prova que o público (anon key) não lê as tabelas nem o bucket direto, nem
-// chama as funções do medidor de armazenamento do painel.
+// Prova que o público (anon key) não lê as tabelas nem o bucket direto, não
+// escreve em stories e não chama as funções do medidor de armazenamento.
 // Uso: pnpm check:anon [caminho/de/um/arquivo/no/bucket]
 //
 // Usa só a anon key, a mesma que qualquer visitante pode ver. O caminho é
@@ -9,7 +9,7 @@ import { createClient } from "@supabase/supabase-js";
 import { loadEnv, requireEnv } from "./env";
 
 const BUCKET = "media";
-const TABLES = ["clients", "presentations", "posts"];
+const TABLES = ["clients", "presentations", "posts", "stories"];
 const MISSING_TABLE = ["PGRST205", "42P01"];
 // Funções do medidor do painel: só authenticated pode chamar.
 const FUNCTIONS = ["media_usage_bytes", "media_usage_by_presentation"];
@@ -39,6 +39,19 @@ async function main() {
     } else if (error) report(true, `select em ${table}`, `erro ${error.code} "${error.message}"`);
     else report(data.length === 0, `select em ${table}`, `${data.length} linha(s)`);
   }
+
+  // Escrita: um story inventado não pode entrar.
+  const { error: insertError } = await supabase.from("stories").insert({
+    presentation_id: "00000000-0000-0000-0000-000000000000",
+    day: "2026-01-01",
+    position: 1,
+    path: "presentations/00000000-0000-0000-0000-000000000000/x.jpg",
+  });
+  if (insertError && MISSING_TABLE.includes(insertError.code)) {
+    report(false, "insert em stories", `a tabela não existe (${insertError.code}). Rode o db push antes.`);
+  } else if (insertError) {
+    report(true, "insert em stories", `erro ${insertError.code} "${insertError.message}"`);
+  } else report(false, "insert em stories", "a linha entrou");
 
   for (const fn of FUNCTIONS) {
     const { data, error } = await supabase.rpc(fn);
