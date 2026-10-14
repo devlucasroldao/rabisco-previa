@@ -17,7 +17,11 @@ async function PresentationLoader({
   const { token } = await params;
   const presentation = await getPresentationByToken(token);
 
-  if (!presentation || presentation.posts.length === 0) {
+  // Uma apresentação só com stories também abre.
+  if (
+    !presentation ||
+    (presentation.posts.length === 0 && presentation.stories.length === 0)
+  ) {
     return <Message title="Esta prévia não existe ou foi removida" />;
   }
 

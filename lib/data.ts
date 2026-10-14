@@ -1,4 +1,5 @@
 import { samplePresentations } from "./sample-data";
+import { numberStories } from "./stories";
 import { getSupabaseAdmin, MEDIA_BUCKET } from "./supabase/server";
 import type { Media, Post, Presentation } from "./types";
 
@@ -29,6 +30,7 @@ type PresentationRow = {
     caption: string | null;
     media: StoredMedia[];
   }[];
+  stories: { id: string; day: string; position: number; path: string }[];
 };
 
 // Único ponto de leitura da tela do cliente. Sem cache: cada requisição
@@ -48,7 +50,7 @@ export async function getPresentationByToken(
   const { data, error } = await supabase
     .from("presentations")
     .select(
-      "title, token, client:clients!inner(name, handle, bio, avatar_path), posts(id, position, type, caption, media)",
+      "title, token, client:clients!inner(name, handle, bio, avatar_path), posts(id, position, type, caption, media), stories(id, day, position, path)",
     )
     .eq("token", token)
     .order("position", { referencedTable: "posts" })
@@ -68,6 +70,8 @@ export async function getPresentationByToken(
       if (item.poster) paths.add(item.poster);
     }
   }
+  // Stories na mesma chamada de assinatura, com a mesma validade.
+  for (const story of data.stories) paths.add(story.path);
 
   const signedUrls = new Map<string, string>();
   if (paths.size > 0) {
@@ -107,6 +111,13 @@ export async function getPresentationByToken(
         return [{ url, kind: item.kind, poster: sign(item.poster) }];
       }),
     })),
+    // Story cujo arquivo sumiu fica de fora antes da numeração.
+    stories: numberStories(
+      data.stories.flatMap((story) => {
+        const url = sign(story.path);
+        return url ? [{ ...story, url }] : [];
+      }),
+    ),
   };
 }
 

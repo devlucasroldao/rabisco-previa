@@ -1,4 +1,4 @@
-import type { Client, Post, Presentation } from "./types";
+import type { Client, Post, Presentation, Story } from "./types";
 
 // Dados de exemplo da Conecte Telecom (uso da marca autorizado pela empresa).
 // Os arquivos ficam em public/sample/.
@@ -48,17 +48,26 @@ const paz: Post = {
   media: [{ url: "/sample/paz.jpg", kind: "image" }],
 };
 
+// Os stories do exemplo reaproveitam as artes do carrossel e a capa do Reels.
+const stories: Story[] = [
+  { id: "sample-story-1", day: "2026-10-12", number: 1, url: "/sample/reels-capa.jpg" },
+  { id: "sample-story-2", day: "2026-10-12", number: 2, url: "/sample/car-2.jpg" },
+  { id: "sample-story-3", day: "2026-10-14", number: 3, url: "/sample/car-4.jpg" },
+];
+
 export const samplePresentations: Presentation[] = [
   {
     title: "Semana de exemplo",
     token: "demo",
     client: conecte,
     posts: [reels, carousel, paz],
+    stories,
   },
   {
     title: "Conteúdo único",
     token: "single",
     client: conecte,
     posts: [{ ...paz, position: 1 }],
+    stories: [],
   },
 ];
