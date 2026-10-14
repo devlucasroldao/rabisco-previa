@@ -14,7 +14,7 @@ A especificação completa está em [docs/SPEC.md](docs/SPEC.md).
 
 ## Estado atual
 
-**Etapa 5: stories da semana, só imagens, organizados por dia.** Antes vieram o medidor de armazenamento e a limpeza das semanas antigas (4B) e a compressão de vídeo no navegador (4A). Ficam pra depois: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
+**Etapa 6: gestão da apresentação.** Reordenar posts arrastando, desativar, reativar e regenerar o link, e trocar a senha no painel. Antes vieram os stories (5), o medidor de armazenamento e a limpeza das semanas antigas (4B) e a compressão de vídeo no navegador (4A). Ficam pra depois: upload em massa e agrupar arquivos em carrossel.
 
 - `/admin`: painel da equipe, com login por e-mail e senha. Cadastra clientes, monta as apresentações e adiciona os posts (post, carrossel ou Reels)
 - `/p/<token>`: apresentação lida do Supabase, com a mídia num bucket privado servida por URL assinada (validade de 6 horas)
@@ -67,17 +67,29 @@ Rodar `pnpm seed` de novo cria outra apresentação e reaproveita o cliente.
 
 ### Painel
 
-O painel fica em <http://localhost:3000/admin> e não tem cadastro nem "esqueci a senha": crie os usuários da equipe no Supabase, em Authentication > Users > Add user, com e-mail, senha e "Auto Confirm User". Troca de senha também é pelo dashboard.
+O painel fica em <http://localhost:3000/admin> e não tem cadastro nem "esqueci a senha": crie os usuários da equipe no Supabase, em Authentication > Users > Add user, com e-mail, senha e "Auto Confirm User". Cada pessoa troca a própria senha em Conta (veja abaixo); senha esquecida se resolve pelo dashboard.
 
 - **Clientes** (`/admin`): nome, @, bio e foto. A foto é recortada em quadrado de 320×320 no navegador. Excluir um cliente pede o @ digitado e apaga as apresentações, os posts e os arquivos dele.
-- **Apresentações** (`/admin/clientes/<id>`): criar com um título, copiar o link do cliente, ver como cliente e excluir.
+- **Apresentações** (`/admin/clientes/<id>`): criar com um título, copiar o link do cliente, ver como cliente, desativar ou reativar o link e excluir.
 - **Posts** (`/admin/apresentacoes/<id>`): um por vez. Post tem 1 imagem, carrossel tem de 2 a 10 (com subir e descer pra ordenar) e Reels tem 1 vídeo e 1 capa. A legenda aceita até 2200 caracteres.
 
 As imagens são redimensionadas no navegador pra até 1080 px de largura, em JPEG. O vídeo é comprimido no navegador (veja abaixo) e o arquivo final tem que caber em 50 MB, que é o limite por arquivo do plano gratuito do Supabase.
 
 Os arquivos vão direto do navegador pro bucket, com a sessão de quem entrou, e nunca passam pelas funções do Next (a Vercel limita o corpo da requisição a cerca de 4,5 MB). O post só é gravado depois que todos os envios terminam, e o servidor confere no bucket o tipo e o tamanho de cada arquivo antes de gravar.
 
-Excluir um post, uma apresentação ou um cliente apaga primeiro os arquivos do bucket e depois a linha no banco. Excluir um post muda o número dos seguintes na tela do cliente: se o link já foi enviado, crie outra apresentação.
+Excluir um post, uma apresentação ou um cliente apaga primeiro os arquivos do bucket e depois a linha no banco. Excluir ou reordenar posts muda os números na tela do cliente: se o link já foi enviado, avise o cliente ou crie outra apresentação.
+
+### Gestão da apresentação
+
+Dentro de `/admin/apresentacoes/<id>`:
+
+- **Reordenar posts:** arraste pela alça (⋮⋮) à esquerda de cada post ou use os botões ↑ e ↓. Pelo teclado: Tab até a alça, espaço ou Enter pra pegar, setas pra mover, espaço ou Enter pra soltar e Esc pra cancelar. A lista muda na hora e volta sozinha se o banco recusar. Depois de salvar aparece "Ordem salva" e o lembrete de que, se o link já foi enviado, o cliente precisa saber que os números mudaram. Os stories continuam com ↑ e ↓.
+- **Desativar e reativar o link:** com o link desativado, a tela do cliente mostra "Esta prévia não existe ou foi removida", a apresentação ganha o selo "Link desativado" e "Copiar link" e "Ver como cliente" só mostram o aviso. Reativar devolve o mesmo link. Esses botões também aparecem na lista de apresentações do cliente.
+- **Regenerar o link:** troca o token por um novo (o mesmo `nanoid(12)` do seed) depois de uma confirmação na tela. O link antigo deixa de funcionar na hora.
+
+A ordem é salva pela função SQL `reorder_posts`, que confere se a lista tem exatamente os posts da apresentação (sem faltar, sobrar ou repetir) e renumera `position` de 1 a N numa instrução só. Ela roda como quem chama (`security invoker`), então a RLS de `authenticated` continua valendo, e só `authenticated` pode executá-la.
+
+**Conta** (`/admin/conta`, no cabeçalho): troca a própria senha. Pede a senha atual (conferida com um login novo antes de trocar), a nova com pelo menos 12 caracteres e a confirmação. Não precisa sair e entrar de novo. Esquecer a senha continua sendo resolvido pelo dashboard do Supabase.
 
 ### Stories
 
@@ -154,7 +166,7 @@ A tela do cliente nunca fala com o banco: o servidor recebe o token, busca só a
 
 O painel não usa a `service_role`: ele lê e escreve com a `anon key` e a sessão de quem entrou, então vale o RLS de `authenticated`. Cada página e cada Server Action confere o login no servidor com `getUser()` (`requireStaff()`); o `proxy.ts` só renova a sessão e redireciona quem não entrou.
 
-Pra conferir que o público não acessa nada direto (tabelas, inclusive escrever em `stories`, bucket e as funções do medidor), usando só a `anon key`:
+Pra conferir que o público não acessa nada direto (tabelas, inclusive escrever em `stories`, bucket, as funções do medidor e a `reorder_posts`), usando só a `anon key`:
 
 ```bash
 pnpm check:anon <caminho-de-um-arquivo-no-bucket>
@@ -182,7 +194,7 @@ A rota só responde com `Authorization: Bearer <CRON_SECRET>`; sem isso devolve 
 app/p/[token]/page.tsx        rota do cliente: busca a apresentação pelo token
 app/admin/
   login/page.tsx              login da equipe
-  (painel)/                   clientes, apresentações e posts, atrás do login
+  (painel)/                   clientes, apresentações, posts e conta, atrás do login
   actions.ts                  Server Actions do painel, com validação (zod) e conferência do bucket
 app/api/cron/keepalive/       rota do cron que mantém o Supabase acordado
 proxy.ts                      renova a sessão em /admin e redireciona quem não entrou
@@ -199,6 +211,7 @@ lib/
   data.ts                     getPresentationByToken(token)
   admin-data.ts               leituras do painel (clientes, apresentações e posts)
   media.ts                    regras de mídia: tamanhos, tipos e caminhos no bucket
+  presentation-rules.ts       reordenação, link ativo e regras da senha nova
   storage-rules.ts            medidor de armazenamento, idade das apresentações e limpeza em lote
   stories.ts                  regras dos stories: datas, numeração, avanço, anel e balão
   story-storage.ts            stories vistos e dica dispensada no localStorage, com try/catch
@@ -216,7 +229,7 @@ scripts/
   seed.ts                     cria a apresentação de exemplo no Supabase
   check-anon.ts               prova que a anon key não lê nada
   e2e.ts                      teste de ponta a ponta do painel
-supabase/migrations/          tabelas, RLS e bucket
+supabase/migrations/          tabelas, RLS, bucket e funções (medidor e reorder_posts)
 public/sample/                arquivos de mídia do exemplo
 ```
 
@@ -224,7 +237,7 @@ Os componentes recebem os dados por props e só `lib/data.ts` sabe de onde eles 
 
 ## Stack
 
-Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres, Auth, Storage) · ffmpeg.wasm · zod · Playwright (teste) · pnpm
+Next.js (App Router) · TypeScript · Tailwind CSS · Supabase (Postgres, Auth, Storage) · ffmpeg.wasm · dnd-kit · zod · Playwright (teste) · pnpm
 
 ## Sobre os dados de exemplo
 
