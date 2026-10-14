@@ -12,14 +12,23 @@ export async function GET(request: Request) {
     received.length !== expected.length ||
     !timingSafeEqual(received, expected)
   ) {
+    // Nunca o segredo nem o header: só que a chamada não passou.
+    console.warn("[keepalive] não autorizado");
     return Response.json({ ok: false }, { status: 401 });
   }
 
   const supabase = getSupabaseAdmin();
-  if (!supabase) return Response.json({ ok: false }, { status: 500 });
+  if (!supabase) {
+    console.error("[keepalive] falhou", { status: null, code: "sem_configuracao" });
+    return Response.json({ ok: false }, { status: 500 });
+  }
 
-  const { error } = await supabase.from("clients").select("id").limit(1);
-  if (error) return Response.json({ ok: false }, { status: 500 });
+  const { error, status } = await supabase.from("clients").select("id").limit(1);
+  if (error) {
+    console.error("[keepalive] falhou", { status, code: error.code });
+    return Response.json({ ok: false }, { status: 500 });
+  }
 
+  console.info("[keepalive] ok");
   return Response.json({ ok: true });
 }

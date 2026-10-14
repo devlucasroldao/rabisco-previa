@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/admin/avatar";
+import { OldPresentations } from "@/components/admin/old-presentations";
 import { primaryButtonClass } from "@/components/admin/ui";
-import { listClients } from "@/lib/admin-data";
+import { listClients, listOldPresentations } from "@/lib/admin-data";
+import { OLD_PRESENTATION_DAYS } from "@/lib/storage-rules";
 
 export default function Page() {
   return (
@@ -16,8 +18,24 @@ export default function Page() {
       <Suspense fallback={null}>
         <ClientList />
       </Suspense>
+
+      <section className="mt-12">
+        <h2 className="text-[16px] font-semibold">Apresentações antigas</h2>
+        <p className="mt-1 mb-4 text-[13px] text-muted">
+          Com mais de {OLD_PRESENTATION_DAYS} dias. Os originais ficam no Drive e as
+          legendas no Notion, então dá pra liberar espaço apagando as semanas que já
+          passaram.
+        </p>
+        <Suspense fallback={null}>
+          <OldList />
+        </Suspense>
+      </section>
     </>
   );
+}
+
+async function OldList() {
+  return <OldPresentations presentations={await listOldPresentations()} />;
 }
 
 async function ClientList() {

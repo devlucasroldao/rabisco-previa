@@ -1,7 +1,7 @@
 // Limites e decisões da compressão de vídeo. Sem navegador nem ffmpeg aqui:
 // é o que o pnpm test cobre. Quem roda o ffmpeg é o lib/video.ts.
 
-import { VIDEO_EXTENSIONS, VIDEO_MAX_BYTES } from "./media";
+import { megabytes, VIDEO_EXTENSIONS, VIDEO_MAX_BYTES } from "./media";
 
 // Acima disso o ffmpeg.wasm (32 bits, uma thread) fica sem memória.
 export const VIDEO_INPUT_MAX_BYTES = 300 * 1024 * 1024;
@@ -16,10 +16,6 @@ export const VIDEO_OUTPUT_EXTENSION = "mp4";
 
 // A capa automática sai de 1 s de vídeo, pra fugir do quadro preto do começo.
 export const COVER_DEFAULT_SECONDS = 1;
-
-export function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
-}
 
 type FileInfo = { name: string; type: string; size: number };
 

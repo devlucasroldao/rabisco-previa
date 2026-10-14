@@ -24,6 +24,8 @@ import {
   VIDEO_MAX_BYTES,
   type StoredMedia,
 } from "@/lib/media";
+import { presentationSizes } from "@/lib/admin-data";
+import { daysSince, isOld, runBatch } from "@/lib/storage-rules";
 import { SupabaseConfigError } from "@/lib/supabase/env";
 import {
   getSupabaseSession,
@@ -335,6 +337,23 @@ export async function renamePresentation(
   return { saved: true };
 }
 
+// Arquivos primeiro, depois a linha (os posts caem em cascata no banco; a
+// mídia do bucket não). Se o bucket falhar, a linha fica e dá pra tentar de
+// novo.
+async function removePresentation(supabase: SupabaseClient, presentationId: string) {
+  try {
+    await emptyFolder(supabase, presentationFolder(presentationId));
+  } catch (error) {
+    throw new Error(`Não deu pra apagar a mídia: ${message(error)}`);
+  }
+
+  const { error } = await supabase
+    .from("presentations")
+    .delete()
+    .eq("id", presentationId);
+  if (error) throw new Error(`Não deu pra excluir: ${error.message}`);
+}
+
 export async function deletePresentation(
   presentationId: string,
 ): Promise<ActionResult> {
@@ -343,21 +362,74 @@ export async function deletePresentation(
     return { error: "Apresentação inválida." };
   }
 
-  // Os posts caem em cascata no banco; a mídia do bucket não.
   try {
-    await emptyFolder(supabase, presentationFolder(presentationId));
+    await removePresentation(supabase, presentationId);
   } catch (error) {
-    return { error: `Não deu pra apagar a mídia: ${message(error)}` };
+    return { error: message(error) };
   }
-
-  const { error } = await supabase
-    .from("presentations")
-    .delete()
-    .eq("id", presentationId);
-  if (error) return { error: `Não deu pra excluir: ${error.message}` };
 
   refresh();
   return {};
+}
+
+export type CleanupResult = {
+  error?: string;
+  deleted: number;
+  freedBytes: number;
+  failures: { title: string; error: string }[];
+};
+
+// Limpeza em lote das apresentações antigas. Só apaga o que tem mais de 21
+// dias, mesmo que a tela mande outro id; quem falha fica, com o erro, e as
+// demais seguem.
+export async function deleteOldPresentations(ids: string[]): Promise<CleanupResult> {
+  const { supabase } = await requireStaff();
+  const empty: CleanupResult = { deleted: 0, freedBytes: 0, failures: [] };
+
+  const parsed = z.array(id).min(1).max(200).safeParse(ids);
+  if (!parsed.success) return { ...empty, error: "Selecione ao menos uma apresentação." };
+  const unique = [...new Set(parsed.data)];
+
+  const { data: rows, error } = await supabase
+    .from("presentations")
+    .select("id, title, created_at")
+    .in("id", unique);
+  if (error) return { ...empty, error: `Não deu pra conferir as apresentações: ${error.message}` };
+  // O tamanho é medido antes, pra dizer quanto foi liberado.
+  let bytes: Map<string, number>;
+  try {
+    bytes = await presentationSizes(supabase);
+  } catch (cause) {
+    return { ...empty, error: message(cause) };
+  }
+
+  const now = new Date();
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const failures: CleanupResult["failures"] = [];
+  const allowed: string[] = [];
+  for (const presentationId of unique) {
+    const row = byId.get(presentationId);
+    if (!row) continue; // Já foi apagada.
+    if (!isOld(daysSince(row.created_at, now))) {
+      failures.push({ title: row.title, error: "Ainda não passou de 21 dias." });
+    } else {
+      allowed.push(presentationId);
+    }
+  }
+
+  const result = await runBatch(allowed, (presentationId) =>
+    removePresentation(supabase, presentationId),
+  );
+  for (const failure of result.failed) {
+    failures.push({ title: byId.get(failure.id)!.title, error: failure.error });
+  }
+
+  refresh();
+  return {
+    deleted: result.deleted.length,
+    freedBytes: result.deleted.reduce((sum, item) => sum + (bytes.get(item) ?? 0), 0),
+    failures,
+  };
 }
 
 // Posts ------------------------------------------------------------------

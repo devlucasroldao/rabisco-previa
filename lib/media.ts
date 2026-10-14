@@ -42,6 +42,11 @@ export const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 // Folga pro que o servidor aceita de uma imagem já redimensionada.
 export const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 
+// "12,3 MB", do jeito que o painel mostra tamanho de arquivo.
+export function megabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+}
+
 export function avatarPath(clientId: string): string {
   return `clients/${clientId}/avatar.jpg`;
 }

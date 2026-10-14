@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { MEDIA_BUCKET, type PostType, type StoredMedia } from "./media";
+import { daysSince, isOld } from "./storage-rules";
 import { requireStaff } from "./supabase/session";
 
 const UUID_PATTERN =
@@ -24,6 +25,17 @@ export type AdminPresentation = {
   title: string;
   token: string;
   createdAt: string | null;
+  postCount: number;
+  ageDays: number | null;
+  bytes: number;
+};
+
+export type OldPresentation = {
+  id: string;
+  title: string;
+  clientName: string;
+  ageDays: number;
+  bytes: number;
   postCount: number;
 };
 
@@ -89,7 +101,11 @@ export async function getClient(id: string): Promise<{
   if (error) throw new Error(`Falha ao buscar o cliente: ${error.message}`);
   if (!data) return null;
 
-  const avatars = await signAvatars(supabase, [data]);
+  const [avatars, sizes] = await Promise.all([
+    signAvatars(supabase, [data]),
+    presentationSizes(supabase),
+  ]);
+  const now = new Date();
   return {
     client: toClient(data, avatars),
     presentations: data.presentations.map((p) => ({
@@ -98,8 +114,71 @@ export async function getClient(id: string): Promise<{
       token: p.token,
       createdAt: p.created_at,
       postCount: p.posts[0]?.count ?? 0,
+      ageDays: daysSince(p.created_at, now),
+      bytes: sizes.get(p.id) ?? 0,
     })),
   };
+}
+
+// Armazenamento --------------------------------------------------------------
+
+// As somas vêm de funções security definer (migration do medidor): o painel
+// continua sem service_role e sem ler storage.objects direto.
+export async function getStorageUsage(): Promise<number> {
+  const { supabase } = await requireStaff();
+  const { data, error } = await supabase.rpc("media_usage_bytes");
+  if (error) throw new Error(`Falha ao medir o armazenamento: ${error.message}`);
+  return Number(data ?? 0);
+}
+
+// Bytes no bucket por apresentação. Também usada pela limpeza em lote.
+export async function presentationSizes(
+  supabase: SupabaseClient,
+): Promise<Map<string, number>> {
+  const { data, error } = await supabase.rpc("media_usage_by_presentation");
+  if (error) throw new Error(`Falha ao medir as apresentações: ${error.message}`);
+  const rows = (data ?? []) as { presentation_id: string; bytes: number }[];
+  return new Map(rows.map((row) => [row.presentation_id, Number(row.bytes)]));
+}
+
+// Apresentações com mais de 21 dias, das mais antigas pras mais novas.
+export async function listOldPresentations(): Promise<OldPresentation[]> {
+  const { supabase } = await requireStaff();
+
+  const [{ data, error }, sizes] = await Promise.all([
+    supabase
+      .from("presentations")
+      .select("id, title, created_at, client:clients!inner(name), posts(count)")
+      .order("created_at")
+      .overrideTypes<
+        {
+          id: string;
+          title: string;
+          created_at: string | null;
+          client: { name: string };
+          posts: { count: number }[];
+        }[],
+        { merge: false }
+      >(),
+    presentationSizes(supabase),
+  ]);
+  if (error) throw new Error(`Falha ao listar as apresentações: ${error.message}`);
+
+  const now = new Date();
+  return data.flatMap((row) => {
+    const ageDays = daysSince(row.created_at, now);
+    if (ageDays === null || !isOld(ageDays)) return [];
+    return [
+      {
+        id: row.id,
+        title: row.title,
+        clientName: row.client.name,
+        ageDays,
+        bytes: sizes.get(row.id) ?? 0,
+        postCount: row.posts[0]?.count ?? 0,
+      },
+    ];
+  });
 }
 
 function toClient(row: ClientRow, avatars: Map<string, string>): AdminClient {

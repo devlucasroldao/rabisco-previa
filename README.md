@@ -14,7 +14,7 @@ A especificação completa está em [docs/SPEC.md](docs/SPEC.md).
 
 ## Estado atual
 
-**Etapa 4A de 6: o painel comprime o vídeo do Reels no navegador antes do envio.** Ficam pra Etapa 4B: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
+**Etapa 4B de 6: medidor de armazenamento e limpeza das semanas antigas, depois da compressão de vídeo no navegador (4A).** Ficam pra depois: upload em massa, agrupar arquivos em carrossel e reordenar posts arrastando.
 
 - `/admin`: painel da equipe, com login por e-mail e senha. Cadastra clientes, monta as apresentações e adiciona os posts (post, carrossel ou Reels)
 - `/p/<token>`: apresentação lida do Supabase, com a mídia num bucket privado servida por URL assinada (validade de 6 horas)
@@ -104,9 +104,19 @@ O que esperar, medido num notebook com Edge, com amostras geradas a partir do v�
 
 Limites conhecidos: uma thread só, então a conversão leva de 2 a 3 vezes a duração do vídeo; funciona em navegador de computador (não foi testado no celular); e a conversão de HDR foi conferida só com um HLG sintético, não com um vídeo HDR real do iPhone.
 
+### Armazenamento e limpeza
+
+Tudo cabe no plano gratuito do Supabase: 1 GB de arquivos e 500 MB de banco. A equipe guarda só as últimas 3 semanas de cada cliente, porque os originais ficam no Drive e as legendas no Notion.
+
+- **Medidor:** o cabeçalho do painel mostra "Armazenamento: X MB de 1 GB (Y%)" com uma barra fina, neutra até 70%, amarela acima de 70% e vermelha acima de 90%. O limite é a constante `STORAGE_LIMIT_BYTES` em `lib/storage-rules.ts`. O medidor conta só os arquivos do bucket `media`, não o banco.
+- **Idade e peso:** na página do cliente, cada apresentação mostra os dias desde a criação, o tamanho em MB e o número de posts. Com mais de 21 dias (`OLD_PRESENTATION_DAYS`) ela ganha o selo "Antiga".
+- **Limpeza em lote:** em `/admin`, a seção "Apresentações antigas" lista as que passaram de 21 dias, com caixas de seleção e o total. "Apagar selecionadas" pede confirmação em tela com o resumo. Cada apresentação perde primeiro os arquivos do bucket e depois a linha; se algum arquivo falhar, a linha daquela fica, o erro aparece e as demais seguem. No fim o painel diz quantas saíram e quantos MB foram liberados, e o medidor é atualizado. Nada é apagado sozinho ou por agendamento, e o servidor recusa apagar por ali uma apresentação com 21 dias ou menos.
+
+O painel continua sem `service_role`. As somas vêm de duas funções SQL `security definer` (`media_usage_bytes()` e `media_usage_by_presentation()`, migration `20261014120000_medidor_de_armazenamento.sql`), que só devolvem totais e só podem ser chamadas por `authenticated`. O `pnpm check:anon` confere que a `anon key` não consegue chamá-las.
+
 ### Teste de ponta a ponta
 
-`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post (com a compressão do vídeo, a capa automática e o envio sem compressão quando o CDN falha), a tela do cliente e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
+`pnpm test:e2e` abre o painel num navegador de verdade (Playwright, usando o Edge já instalado) contra um app rodando e o Supabase real. Ele cria um usuário temporário pela API admin, com senha aleatória que só existe na memória, percorre login, cliente, apresentação, os três tipos de post (com a compressão do vídeo, a capa automática e o envio sem compressão quando o CDN falha), a tela do cliente, o tamanho e a idade das apresentações (uma delas tem o `created_at` recuado 30 dias pra ganhar o selo), a limpeza em lote com o medidor e as exclusões, e no final apaga o usuário, os dados e os arquivos de teste.
 
 ```bash
 pnpm build
@@ -132,7 +142,7 @@ A tela do cliente nunca fala com o banco: o servidor recebe o token, busca só a
 
 O painel não usa a `service_role`: ele lê e escreve com a `anon key` e a sessão de quem entrou, então vale o RLS de `authenticated`. Cada página e cada Server Action confere o login no servidor com `getUser()` (`requireStaff()`); o `proxy.ts` só renova a sessão e redireciona quem não entrou.
 
-Pra conferir que o público não acessa nada direto, usando só a `anon key`:
+Pra conferir que o público não acessa nada direto (tabelas, bucket e as funções do medidor), usando só a `anon key`:
 
 ```bash
 pnpm check:anon <caminho-de-um-arquivo-no-bucket>
@@ -150,7 +160,7 @@ Importe o repositório na Vercel e cadastre as três variáveis de ambiente list
 
 ### Keep-alive
 
-Projeto gratuito do Supabase pausa depois de cerca de 7 dias sem atividade. O `vercel.json` agenda um cron diário (12h UTC) em `/api/cron/keepalive`, que lê uma linha de `clients` e responde `{ "ok": true }`.
+Projeto gratuito do Supabase pausa depois de cerca de 7 dias sem atividade. O `vercel.json` agenda um cron diário (12h UTC) em `/api/cron/keepalive`, que lê uma linha de `clients` e responde `{ "ok": true }`. Nos logs da Vercel aparecem `[keepalive] ok`, `[keepalive] não autorizado` ou `[keepalive] falhou` com o status e o código do erro; o segredo e o header `Authorization` nunca são registrados.
 
 A rota só responde com `Authorization: Bearer <CRON_SECRET>`; sem isso devolve 401. Crie a variável `CRON_SECRET` nas Settings do projeto na Vercel, em Production, com um texto aleatório longo: a Vercel manda esse header sozinha nas chamadas do cron. Sem a variável, o cron recebe 401 e o projeto não é mantido acordado.
 
@@ -176,6 +186,7 @@ lib/
   data.ts                     getPresentationByToken(token)
   admin-data.ts               leituras do painel (clientes, apresentações e posts)
   media.ts                    regras de mídia: tamanhos, tipos e caminhos no bucket
+  storage-rules.ts            medidor de armazenamento, idade das apresentações e limpeza em lote
   image.ts                    redimensiona imagem e avatar no navegador
   video.ts                    comprime o vídeo com o ffmpeg.wasm e tira a capa de um quadro
   video-rules.ts              limites e decisões da compressão (o que o pnpm test cobre)
