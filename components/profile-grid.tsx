@@ -122,6 +122,12 @@ export function ProfileGrid({
           WhatsApp o número do post.
         </p>
         <p className="mt-3 text-[11px]">Prévia preparada pela Rabisco</p>
+        {posts.some((post) => post.type === "reels") && (
+          <p className="mt-1 text-[11px]">
+            Os vídeos desta prévia estão comprimidos. O arquivo final é publicado
+            em qualidade total.
+          </p>
+        )}
       </footer>
     </div>
   );
