@@ -1,6 +1,19 @@
-import { CarouselIcon, GridIcon, ReelsIcon } from "@/components/icons";
+import { CarouselIcon, CloseIcon, GridIcon, ReelsIcon } from "@/components/icons";
 import { postThumbnail, postTypeLabel } from "@/lib/post";
+import { avatarLabel, contentCounter } from "@/lib/stories";
 import type { Presentation } from "@/lib/types";
+
+export const STORIES_AVATAR_ID = "stories-avatar";
+
+// Só o anel imita a convenção dos stories; nada de logo, nome ou ícones.
+const STORY_RING = "linear-gradient(45deg, #feda75, #fa7e1e, #d62976, #962fbf, #4f5bd5)";
+
+export type StoriesEntry = {
+  everythingSeen: boolean;
+  hint: boolean;
+  onOpen: () => void;
+  onDismissHint: () => void;
+};
 
 const COLUMNS = 3;
 const EXTRA_ROWS = 2;
@@ -12,11 +25,15 @@ export function thumbnailId(number: number) {
 export function ProfileGrid({
   presentation,
   onOpen,
+  stories,
 }: {
   presentation: Presentation;
   onOpen: (number: number) => void;
+  // Ausente quando a apresentação não tem stories: o avatar fica como sempre.
+  stories?: StoriesEntry;
 }) {
   const { client, posts } = presentation;
+  const storyCount = presentation.stories.length;
 
   // Completa a linha atual e acrescenta mais duas fileiras de silhuetas.
   const placeholders =
@@ -30,21 +47,28 @@ export function ProfileGrid({
           Prévia da semana
         </p>
         <p className="text-[12px] text-muted">
-          {posts.length} {posts.length === 1 ? "conteúdo" : "conteúdos"} ·
-          Rabisco
+          {contentCounter(posts.length, storyCount)} · Rabisco
         </p>
       </div>
 
       <header className="px-4 pt-5 pb-5">
-        <div className="flex items-center gap-5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={client.avatarUrl}
-            alt={`Foto de perfil de ${client.name}`}
-            width={84}
-            height={84}
-            className="size-[84px] shrink-0 rounded-full border border-line object-cover"
-          />
+        <div className="relative flex items-center gap-5">
+          {stories && storyCount > 0 ? (
+            <StoriesAvatar
+              src={client.avatarUrl}
+              total={storyCount}
+              entry={stories}
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={client.avatarUrl}
+              alt={`Foto de perfil de ${client.name}`}
+              width={84}
+              height={84}
+              className="size-[84px] shrink-0 rounded-full border border-line object-cover"
+            />
+          )}
           <div className="min-w-0">
             <h1 className="truncate text-[20px] leading-tight font-bold">
               {client.handle}
@@ -130,5 +154,69 @@ export function ProfileGrid({
         )}
       </footer>
     </div>
+  );
+}
+
+// Avatar com anel: colorido enquanto há story não visto, cinza quando todos
+// foram vistos neste aparelho. O anel é decorativo; quem fala é o botão.
+function StoriesAvatar({
+  src,
+  total,
+  entry,
+}: {
+  src: string;
+  total: number;
+  entry: StoriesEntry;
+}) {
+  return (
+    <>
+      <button
+        id={STORIES_AVATAR_ID}
+        type="button"
+        onClick={entry.onOpen}
+        aria-label={avatarLabel(total, entry.everythingSeen)}
+        className="relative size-[96px] shrink-0 cursor-pointer rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
+        {/* 3 px de anel, 3 px de espaço e a foto de 84 px. */}
+        <span
+          aria-hidden="true"
+          data-ring={entry.everythingSeen ? "visto" : "novo"}
+          className="absolute inset-0 rounded-full"
+          style={{
+            background: entry.everythingSeen ? "var(--story-seen)" : STORY_RING,
+          }}
+        />
+        <span aria-hidden="true" className="absolute inset-[3px] rounded-full bg-background" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt=""
+          width={84}
+          height={84}
+          className="absolute inset-[6px] size-[84px] rounded-full border border-line object-cover"
+        />
+      </button>
+      {entry.hint && (
+        <div
+          role="note"
+          className="absolute top-1/2 left-[106px] z-10 flex max-w-[230px] -translate-y-1/2 items-center rounded-[12px] bg-foreground py-1 pl-3 text-[13px] leading-[1.35] font-medium text-background shadow-lg"
+        >
+          {/* Seta apontando pro avatar. */}
+          <span
+            aria-hidden="true"
+            className="absolute top-1/2 -left-[6px] size-3 -translate-y-1/2 rotate-45 bg-foreground"
+          />
+          <span className="relative">Toque na foto para ver os stories da semana</span>
+          <button
+            type="button"
+            onClick={entry.onDismissHint}
+            aria-label="Fechar a dica"
+            className="relative flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <CloseIcon size={16} />
+          </button>
+        </div>
+      )}
+    </>
   );
 }
