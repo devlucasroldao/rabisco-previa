@@ -56,6 +56,11 @@ export function meterLabel(bytes: number): string {
   return `Armazenamento: ${megabytes(bytes)} de 1 GB (${shown}%)`;
 }
 
+// Versão curta, pra barra lateral: "16,5 MB de 1 GB".
+export function meterShortLabel(bytes: number): string {
+  return `${megabytes(bytes)} de 1 GB`;
+}
+
 export function presentationCount(count: number): string {
   return count === 1 ? "1 apresentação" : `${count} apresentações`;
 }

@@ -1,15 +1,12 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { ClientForm } from "@/components/admin/client-form";
+import { PageHeader } from "@/components/admin/primitives/page-header";
 import { requireStaff } from "@/lib/supabase/session";
 
 export default function Page() {
   return (
     <>
-      <Link href="/admin" className="text-[13px] text-muted hover:underline">
-        ← Clientes
-      </Link>
-      <h1 className="mt-2 mb-6 text-[20px] font-semibold">Novo cliente</h1>
+      <PageHeader title="Novo cliente" crumbs={[{ label: "Início", href: "/admin" }]} />
       <Suspense fallback={null}>
         <NewClient />
       </Suspense>

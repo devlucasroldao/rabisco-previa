@@ -156,9 +156,43 @@ const COMPRESSED_NOTE =
   "Os vídeos desta prévia estão comprimidos. O arquivo final é publicado em qualidade total.";
 
 // O medidor do cabeçalho, em MB, lido da tela.
+// O medidor fica na barra lateral; o texto completo está no aria-valuetext.
 async function meterMegabytes(page: Page): Promise<number> {
-  const text = await page.getByText(/^Armazenamento: [\d,]+ MB de 1 GB \(<?\d+%\)$/).innerText();
+  const text = await page.getByRole("meter", { name: "Armazenamento usado" }).getAttribute("aria-valuetext");
+  assert(text && /^Armazenamento: [\d,]+ MB de 1 GB \(<?\d+%\)$/.test(text), `medidor: ${text}`);
   return Number(text.match(/([\d,]+) MB/)![1].replace(",", "."));
+}
+
+// Tempos das exclusões, impressos no fim: quanto a server action levou (do
+// clique até a resposta chegar) e quanto a tela levou pra mostrar o resultado.
+const deletionTimings: string[] = [];
+
+async function timeDeletion(
+  page: Page,
+  what: string,
+  trigger: () => Promise<void>,
+  done: () => Promise<void>,
+) {
+  const started = Date.now();
+  const action = page
+    .waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && Boolean(response.request().headers()["next-action"]),
+      { timeout: 120_000 },
+    )
+    // A resposta da action só começa depois que ela terminou no servidor
+    // (o corpo, com a página nova, vem em streaming e não entra na conta).
+    .then(() => Date.now() - started);
+  await trigger();
+  await done();
+  const screen = Date.now() - started;
+  deletionTimings.push(`${what}: action ${await action} ms, tela ${screen} ms`);
+}
+
+// Sair e trocar a senha ficam no menu da conta, no rodapé da barra lateral.
+async function accountMenuItem(page: Page, name: string) {
+  await page.getByRole("button", { name: "Menu da conta" }).click();
+  await page.getByRole("menuitem", { name }).click();
 }
 
 // Escolhe o vídeo no formulário aberto e espera a compressão terminar.
@@ -354,8 +388,11 @@ async function main() {
       await page.getByLabel("Senha").fill(password);
       await page.getByRole("button", { name: "Entrar" }).click();
       await page.waitForURL(`${BASE_URL}/admin`);
-      await page.getByText(email).waitFor();
-      await page.getByRole("button", { name: "Sair" }).waitFor();
+      // O e-mail aparece no botão do menu da conta (a cópia da gaveta do
+      // celular fica escondida e o papel "button" a ignora).
+      const account = page.getByRole("button", { name: "Menu da conta" });
+      await account.waitFor();
+      assert((await account.innerText()).includes(email), "e-mail no menu da conta");
     });
 
     await step("cria cliente com @ em minúsculas, bio com quebra de linha e avatar 320×320", async () => {
@@ -391,7 +428,8 @@ async function main() {
 
     await step("lista de clientes mostra o cliente e o nº de apresentações", async () => {
       await page.goto(`${BASE_URL}/admin`);
-      const row = page.getByRole("link", { name: new RegExp(`Teste E2E ${run}`) });
+      // A barra lateral também lista o cliente: a linha conferida é a da página.
+      const row = page.getByRole("main").getByRole("link", { name: new RegExp(`Teste E2E ${run}`) });
       await row.waitFor();
       assert((await row.innerText()).includes("0 apresentações"), "contagem de apresentações");
     });
@@ -599,8 +637,12 @@ async function main() {
         warning = dialog.message();
         void dialog.accept();
       });
-      await page.getByRole("button", { name: "Excluir o post 2" }).click();
-      await page.getByRole("button", { name: "Editar o post 3" }).waitFor({ state: "detached" });
+      await timeDeletion(
+        page,
+        "post",
+        () => page.getByRole("button", { name: "Excluir o post 2" }).click(),
+        () => page.getByRole("button", { name: "Editar o post 3" }).waitFor({ state: "detached" }),
+      );
       equal(warning, DELETE_POST_WARNING, "texto da confirmação");
 
       const posts = await postsOf(presentationId);
@@ -611,8 +653,12 @@ async function main() {
     await step("exclui a apresentação e o bucket fica sem arquivos dela", async () => {
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
       page.once("dialog", (dialog) => void dialog.accept());
-      await page.getByRole("button", { name: "Excluir", exact: true }).click();
-      await page.getByText("Nenhuma apresentação ainda.").waitFor();
+      await timeDeletion(
+        page,
+        "apresentação (3 posts, 6 arquivos)",
+        () => page.getByRole("button", { name: "Excluir", exact: true }).click(),
+        () => page.getByText("Nenhuma apresentação ainda.").waitFor(),
+      );
 
       equal(await listBucket(`presentations/${presentationId}`), [], "arquivos no bucket");
       equal(await postsOf(presentationId), [], "posts");
@@ -709,7 +755,8 @@ async function main() {
       // O medidor cai pelo menos o que foi liberado (o arredondamento é de 0,1 MB).
       await page.waitForFunction(
         (limit) => {
-          const match = document.body.innerText.match(/Armazenamento: ([\d,]+) MB/);
+          const text = document.querySelector('[role="meter"]')?.getAttribute("aria-valuetext") ?? "";
+          const match = text.match(/Armazenamento: ([\d,]+) MB/);
           return match ? Number(match[1].replace(",", ".")) <= limit : false;
         },
         before - freed / 1024 / 1024 + 0.1,
@@ -780,7 +827,8 @@ async function main() {
       // E o medidor também.
       await page.waitForFunction(
         (limit) => {
-          const match = document.body.innerText.match(/Armazenamento: ([\d,]+) MB/);
+          const text = document.querySelector('[role="meter"]')?.getAttribute("aria-valuetext") ?? "";
+          const match = text.match(/Armazenamento: ([\d,]+) MB/);
           return match ? Number(match[1].replace(",", ".")) >= limit : false;
         },
         before + storyBytes / 1024 / 1024 - 0.1,
@@ -938,8 +986,12 @@ async function main() {
       const folder = `presentations/${storyPresentationId}`;
       await page.goto(`${BASE_URL}/admin/apresentacoes/${storyPresentationId}`);
       page.once("dialog", (dialog) => void dialog.accept());
-      await page.getByRole("button", { name: "Excluir o story 3" }).click();
-      await page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ state: "detached" });
+      await timeDeletion(
+        page,
+        "story",
+        () => page.getByRole("button", { name: "Excluir o story 3" }).click(),
+        () => page.getByRole("button", { name: "Excluir o story 3" }).waitFor({ state: "detached" }),
+      );
       equal((await listBucket(folder)).length, 3, "arquivos depois de excluir um story");
       const { count } = await admin
         .from("stories")
@@ -950,8 +1002,12 @@ async function main() {
       await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
       page.once("dialog", (dialog) => void dialog.accept());
       const row = page.getByRole("listitem").filter({ hasText: "Stories E2E" });
-      await row.getByRole("button", { name: "Excluir", exact: true }).click();
-      await row.waitFor({ state: "detached" });
+      await timeDeletion(
+        page,
+        "apresentação (1 post, 2 stories)",
+        () => row.getByRole("button", { name: "Excluir", exact: true }).click(),
+        () => row.waitFor({ state: "detached" }),
+      );
       equal(await listBucket(folder), [], "arquivos da apresentação com stories");
       const { count: left } = await admin
         .from("stories")
@@ -1111,7 +1167,7 @@ async function main() {
 
     await step("troca a senha do usuário temporário em Conta: erros em português e a nova passa a valer", async () => {
       const newPassword = randomBytes(24).toString("base64url");
-      await page.getByRole("link", { name: "Conta" }).click();
+      await accountMenuItem(page, "Trocar senha");
       await page.waitForURL(`${BASE_URL}/admin/conta`);
       const robots = await page.locator('meta[name="robots"]').getAttribute("content");
       assert(robots?.includes("noindex"), `meta robots: ${robots}`);
@@ -1130,7 +1186,7 @@ async function main() {
       await fill(password, newPassword, newPassword);
       await page.getByText(/^Senha trocada/).waitFor();
 
-      await page.getByRole("button", { name: "Sair" }).click();
+      await accountMenuItem(page, "Sair");
       await page.waitForURL(`${BASE_URL}/admin/login`);
       await page.getByLabel("E-mail").fill(email);
       // A página Conta continua no DOM, escondida: o rótulo exato evita os
@@ -1205,7 +1261,7 @@ async function main() {
     });
 
     await step("Sair encerra a sessão", async () => {
-      await page.getByRole("button", { name: "Sair" }).click();
+      await accountMenuItem(page, "Sair");
       await page.waitForURL(`${BASE_URL}/admin/login`);
       await page.goto(`${BASE_URL}/admin`);
       equal(new URL(page.url()).pathname, "/admin/login", "página depois de sair");
@@ -1286,6 +1342,19 @@ async function main() {
         .eq("handle", handle);
       equal(count, 0, "clientes de teste restantes");
     }, { independent: true });
+  }
+
+  if (deletionTimings.length > 0) {
+    // Uma ida e volta simples ao Supabase, pra comparar com as exclusões.
+    const pings: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const started = Date.now();
+      await admin.from("clients").select("id").limit(1);
+      pings.push(Date.now() - started);
+    }
+    console.log("\nTempos de exclusão");
+    for (const line of deletionTimings) console.log(`  ${line}`);
+    console.log(`  uma consulta simples ao Supabase: ${pings.join(", ")} ms`);
   }
 
   const failed = results.filter((result) => result.status === "FALHOU");

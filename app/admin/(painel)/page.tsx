@@ -2,31 +2,27 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/admin/avatar";
 import { OldPresentations } from "@/components/admin/old-presentations";
-import { primaryButtonClass } from "@/components/admin/ui";
+import { PageHeader } from "@/components/admin/primitives/page-header";
+import { ListSkeleton } from "@/components/admin/primitives/skeleton";
 import { listClients, listOldPresentations } from "@/lib/admin-data";
 import { OLD_PRESENTATION_DAYS } from "@/lib/storage-rules";
 
 export default function Page() {
   return (
     <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-[20px] font-semibold">Clientes</h1>
-        <Link href="/admin/clientes/novo" className={primaryButtonClass}>
-          Novo cliente
-        </Link>
-      </div>
-      <Suspense fallback={null}>
+      <PageHeader title="Clientes" />
+      <Suspense fallback={<ListSkeleton label="Carregando os clientes" />}>
         <ClientList />
       </Suspense>
 
-      <section className="mt-12">
-        <h2 className="text-[16px] font-semibold">Apresentações antigas</h2>
+      <section id="apresentacoes-antigas" className="mt-12 scroll-mt-20">
+        <h2 className="text-[18px] font-semibold">Apresentações antigas</h2>
         <p className="mt-1 mb-4 text-[13px] text-muted">
           Com mais de {OLD_PRESENTATION_DAYS} dias. Os originais ficam no Drive e as
           legendas no Notion, então dá pra liberar espaço apagando as semanas que já
           passaram.
         </p>
-        <Suspense fallback={null}>
+        <Suspense fallback={<ListSkeleton rows={2} label="Carregando as apresentações antigas" />}>
           <OldList />
         </Suspense>
       </section>
@@ -50,12 +46,12 @@ async function ClientList() {
   }
 
   return (
-    <ul className="mt-6 divide-y divide-line border-y border-line">
+    <ul className="divide-y divide-line border-y border-line">
       {clients.map((client) => (
         <li key={client.id}>
           <Link
             href={`/admin/clientes/${client.id}`}
-            className="flex items-center gap-4 py-3 hover:bg-surface"
+            className="flex items-center gap-4 rounded-md px-2 py-3 transition-colors duration-(--dur-fast) hover:bg-hover"
           >
             <Avatar url={client.avatarUrl} size={44} />
             <span className="min-w-0 flex-1">

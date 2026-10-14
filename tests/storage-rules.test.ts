@@ -7,6 +7,7 @@ import {
   daysSince,
   isOld,
   meterLabel,
+  meterShortLabel,
   meterLevel,
   OLD_PRESENTATION_DAYS,
   runBatch,
@@ -57,6 +58,7 @@ test("texto do medidor", () => {
   assert.equal(meterLabel(512 * MB), "Armazenamento: 512,0 MB de 1 GB (50%)");
   assert.equal(meterLabel(3 * MB), "Armazenamento: 3,0 MB de 1 GB (<1%)");
   assert.equal(meterLabel(0), "Armazenamento: 0,0 MB de 1 GB (0%)");
+  assert.equal(meterShortLabel(16.5 * MB), "16,5 MB de 1 GB");
 });
 
 test("soma do lote e texto da confirmação", () => {

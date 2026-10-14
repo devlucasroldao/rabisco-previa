@@ -5,6 +5,8 @@ import { DeleteClient } from "@/components/admin/delete-client";
 import { DeletePresentationButton } from "@/components/admin/delete-presentation-button";
 import { LinkControls } from "@/components/admin/link-controls";
 import { PresentationForm } from "@/components/admin/presentation-form";
+import { PageHeader } from "@/components/admin/primitives/page-header";
+import { ListSkeleton, Skeleton } from "@/components/admin/primitives/skeleton";
 import { secondaryButtonClass } from "@/components/admin/ui";
 import { getClient, type AdminPresentation } from "@/lib/admin-data";
 import { megabytes } from "@/lib/media";
@@ -17,14 +19,16 @@ const dateFormat = new Intl.DateTimeFormat("pt-BR", {
 
 export default function Page({ params }: PageProps<"/admin/clientes/[id]">) {
   return (
-    <>
-      <Link href="/admin" className="text-[13px] text-muted hover:underline">
-        ← Clientes
-      </Link>
-      <Suspense fallback={null}>
-        <ClientLoader params={params} />
-      </Suspense>
-    </>
+    <Suspense
+      fallback={
+        <>
+          <HeaderSkeleton />
+          <ListSkeleton label="Carregando o cliente" />
+        </>
+      }
+    >
+      <ClientLoader params={params} />
+    </Suspense>
   );
 }
 
@@ -36,20 +40,21 @@ async function ClientLoader({
 
   if (!result) {
     return (
-      <p className="mt-6 text-[14px] text-muted">
-        Este cliente não existe ou foi removido.
-      </p>
+      <>
+        <PageHeader title="Cliente não encontrado" crumbs={[{ label: "Início", href: "/admin" }]} />
+        <p className="text-[14px] text-muted">Este cliente não existe ou foi removido.</p>
+      </>
     );
   }
   const { client, presentations } = result;
 
   return (
     <>
-      <h1 className="mt-2 mb-6 text-[20px] font-semibold">{client.name}</h1>
+      <PageHeader title={client.name} crumbs={[{ label: "Início", href: "/admin" }]} />
       <ClientForm client={client} />
 
       <section className="mt-12">
-        <h2 className="mb-4 text-[16px] font-semibold">Apresentações</h2>
+        <h2 className="mb-4 text-[18px] font-semibold">Apresentações</h2>
         <PresentationForm clientId={client.id} />
         {presentations.length === 0 ? (
           <p className="mt-6 text-[14px] text-muted">
@@ -65,7 +70,7 @@ async function ClientLoader({
       </section>
 
       <section className="mt-12">
-        <h2 className="mb-4 text-[16px] font-semibold">Excluir cliente</h2>
+        <h2 className="mb-4 text-[18px] font-semibold">Excluir cliente</h2>
         <DeleteClient id={client.id} handle={client.handle} />
       </section>
     </>
@@ -100,5 +105,14 @@ function PresentationRow({ presentation }: { presentation: AdminPresentation }) 
       <LinkControls presentationId={id} token={token} active={active} />
       <DeletePresentationButton id={id} title={title} />
     </li>
+  );
+}
+
+function HeaderSkeleton() {
+  return (
+    <div role="status" aria-label="Carregando" className="mb-8 space-y-3">
+      <Skeleton className="h-3 w-24" />
+      <Skeleton className="h-8 w-64" />
+    </div>
   );
 }
