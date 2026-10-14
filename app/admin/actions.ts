@@ -6,9 +6,12 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import {
   authErrorFields,
+  currentPasswordErrorMessage,
   INVALID_CREDENTIALS_MESSAGE,
   loginErrorMessage,
+  passwordUpdateErrorMessage,
 } from "@/lib/auth-error";
+import { newPasswordProblem, reorderProblem } from "@/lib/presentation-rules";
 import {
   avatarPath,
   CAPTION_MAX_LENGTH,
@@ -122,6 +125,50 @@ export async function login(
   }
 
   redirect("/admin");
+}
+
+// Conta ------------------------------------------------------------------
+
+export type PasswordState = ActionResult & { saved?: boolean };
+
+// Confere a senha atual com um login novo antes de trocar: uma sessão
+// esquecida aberta não basta pra mudar a senha. Nenhuma senha vai pro log.
+export async function changePassword(
+  _prev: PasswordState,
+  formData: FormData,
+): Promise<PasswordState> {
+  const { supabase, user } = await requireStaff();
+
+  const text = (name: string) => {
+    const value = formData.get(name);
+    return typeof value === "string" ? value : "";
+  };
+  const input = {
+    current: text("current"),
+    next: text("next"),
+    confirmation: text("confirmation"),
+  };
+  const problem = newPasswordProblem(input);
+  if (problem) return { error: problem };
+  if (!user.email) return { error: "Esta conta não tem e-mail. Troque a senha pelo dashboard." };
+
+  const { error: checkError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: input.current,
+  });
+  if (checkError) {
+    console.error("[conta] a senha atual não conferiu", authErrorFields(checkError));
+    return { error: currentPasswordErrorMessage(checkError) };
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: input.next });
+  if (error) {
+    console.error("[conta] o Supabase recusou a troca de senha", authErrorFields(error));
+    return { error: passwordUpdateErrorMessage(error) };
+  }
+
+  console.info("[conta] senha trocada");
+  return { saved: true };
 }
 
 export async function logout() {
@@ -336,6 +383,58 @@ export async function renamePresentation(
 
   refresh();
   return { saved: true };
+}
+
+// Link da apresentação ---------------------------------------------------
+
+// Desativado, o link responde "não existe" na tela do cliente; reativar
+// devolve o mesmo link.
+export async function setPresentationActive(
+  presentationId: string,
+  active: boolean,
+): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(presentationId).success || typeof active !== "boolean") {
+    return { error: "Apresentação inválida." };
+  }
+
+  const { data, error } = await supabase
+    .from("presentations")
+    .update({ active })
+    .eq("id", presentationId)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: `Não deu pra mudar o link: ${error.message}` };
+  if (!data) return { error: "Esta apresentação não existe mais." };
+
+  refresh();
+  return {};
+}
+
+// Troca o token: o link antigo para de funcionar na hora.
+export async function regeneratePresentationLink(
+  presentationId: string,
+): Promise<ActionResult & { token?: string }> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(presentationId).success) return { error: "Apresentação inválida." };
+
+  // Colisão de nanoid(12) é improvável; se acontecer, tenta outro token.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const token = newToken();
+    const { data, error } = await supabase
+      .from("presentations")
+      .update({ token })
+      .eq("id", presentationId)
+      .select("token")
+      .maybeSingle();
+    if (error?.code === UNIQUE_VIOLATION) continue;
+    if (error) return { error: `Não deu pra regenerar o link: ${error.message}` };
+    if (!data) return { error: "Esta apresentação não existe mais." };
+
+    refresh();
+    return { token: data.token };
+  }
+  return { error: "Não deu pra regenerar o link. Tente de novo." };
 }
 
 // Arquivos primeiro, depois a linha (os posts caem em cascata no banco; a
@@ -559,6 +658,43 @@ export async function savePost(input: {
   } catch (error) {
     return { error: `Não deu pra salvar o post: ${message(error)}` };
   }
+
+  refresh();
+  return {};
+}
+
+const REORDER_STALE_MESSAGE =
+  "A lista de posts mudou enquanto você arrastava. Recarregue a página e tente de novo.";
+
+// Salva a ordem inteira de uma vez pela função SQL reorder_posts, que
+// confere a lista e renumera position de 1 a N numa instrução só.
+export async function reorderPosts(
+  presentationId: string,
+  ids: string[],
+): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+
+  const parsed = z
+    .object({ presentationId: id, ids: z.array(id).min(1).max(500) })
+    .safeParse({ presentationId, ids });
+  if (!parsed.success) return { error: "Lista de posts inválida." };
+
+  const { data: posts, error: readError } = await supabase
+    .from("posts")
+    .select("id")
+    .eq("presentation_id", parsed.data.presentationId);
+  if (readError) return { error: `Não deu pra salvar a ordem: ${readError.message}` };
+  if (reorderProblem(posts.map((post) => post.id), parsed.data.ids)) {
+    return { error: REORDER_STALE_MESSAGE };
+  }
+
+  const { error } = await supabase.rpc("reorder_posts", {
+    p_presentation_id: parsed.data.presentationId,
+    p_ids: parsed.data.ids,
+  });
+  // 22023: a função recusou a lista (alguém mudou os posts no meio).
+  if (error?.code === "22023") return { error: REORDER_STALE_MESSAGE };
+  if (error) return { error: `Não deu pra salvar a ordem: ${error.message}` };
 
   refresh();
   return {};
