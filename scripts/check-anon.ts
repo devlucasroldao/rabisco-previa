@@ -1,5 +1,6 @@
 // Prova que o público (anon key) não lê as tabelas nem o bucket direto, não
-// escreve em stories e não chama as funções do medidor de armazenamento.
+// escreve em stories e não chama as funções do medidor de armazenamento nem a
+// reordenação de posts.
 // Uso: pnpm check:anon [caminho/de/um/arquivo/no/bucket]
 //
 // Usa só a anon key, a mesma que qualquer visitante pode ver. O caminho é
@@ -11,8 +12,13 @@ import { loadEnv, requireEnv } from "./env";
 const BUCKET = "media";
 const TABLES = ["clients", "presentations", "posts", "stories"];
 const MISSING_TABLE = ["PGRST205", "42P01"];
-// Funções do medidor do painel: só authenticated pode chamar.
-const FUNCTIONS = ["media_usage_bytes", "media_usage_by_presentation"];
+// Funções do painel: só authenticated pode chamar.
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+const FUNCTIONS: { name: string; args?: Record<string, unknown> }[] = [
+  { name: "media_usage_bytes" },
+  { name: "media_usage_by_presentation" },
+  { name: "reorder_posts", args: { p_presentation_id: NIL_UUID, p_ids: [NIL_UUID] } },
+];
 const MISSING_FUNCTION = ["PGRST202", "42883"];
 
 loadEnv();
@@ -53,8 +59,8 @@ async function main() {
     report(true, "insert em stories", `erro ${insertError.code} "${insertError.message}"`);
   } else report(false, "insert em stories", "a linha entrou");
 
-  for (const fn of FUNCTIONS) {
-    const { data, error } = await supabase.rpc(fn);
+  for (const { name: fn, args } of FUNCTIONS) {
+    const { data, error } = await supabase.rpc(fn, args);
     // Função inexistente não prova nada: a migration não foi aplicada.
     if (error && MISSING_FUNCTION.includes(error.code)) {
       report(false, `rpc ${fn}`, `a função não existe (${error.code}). Rode o db push antes.`);

@@ -25,6 +25,7 @@ export type AdminPresentation = {
   id: string;
   title: string;
   token: string;
+  active: boolean;
   createdAt: string | null;
   postCount: number;
   ageDays: number | null;
@@ -82,7 +83,7 @@ export async function getClient(id: string): Promise<{
   const { data, error } = await supabase
     .from("clients")
     .select(
-      "id, name, handle, bio, avatar_path, presentations(id, title, token, created_at, posts(count))",
+      "id, name, handle, bio, avatar_path, presentations(id, title, token, active, created_at, posts(count))",
     )
     .eq("id", id)
     .order("created_at", { referencedTable: "presentations", ascending: false })
@@ -93,6 +94,7 @@ export async function getClient(id: string): Promise<{
           id: string;
           title: string;
           token: string;
+          active: boolean;
           created_at: string | null;
           posts: { count: number }[];
         }[];
@@ -113,6 +115,7 @@ export async function getClient(id: string): Promise<{
       id: p.id,
       title: p.title,
       token: p.token,
+      active: p.active,
       createdAt: p.created_at,
       postCount: p.posts[0]?.count ?? 0,
       ageDays: daysSince(p.created_at, now),
@@ -241,6 +244,7 @@ export type AdminPresentationDetail = {
   id: string;
   title: string;
   token: string;
+  active: boolean;
   client: { id: string; name: string; handle: string };
   posts: AdminPost[];
   // Em ordem de dia e depois de position.
@@ -256,7 +260,7 @@ export async function getPresentation(
   const { data, error } = await supabase
     .from("presentations")
     .select(
-      "id, title, token, client:clients!inner(id, name, handle), posts(id, position, type, caption, media), stories(id, day, position, path)",
+      "id, title, token, active, client:clients!inner(id, name, handle), posts(id, position, type, caption, media), stories(id, day, position, path)",
     )
     .eq("id", id)
     .order("position", { referencedTable: "posts" })
@@ -290,6 +294,7 @@ export async function getPresentation(
     id: data.id,
     title: data.title,
     token: data.token,
+    active: data.active,
     client: data.client,
     posts: [...data.posts]
       .sort((a, b) => a.position - b.position)

@@ -37,3 +37,25 @@ export function loginErrorMessage(error: unknown): string {
     ? INVALID_CREDENTIALS_MESSAGE
     : CONFIG_OR_CONNECTION_MESSAGE;
 }
+
+// Troca de senha. A senha atual é conferida antes com signInWithPassword.
+export const WRONG_CURRENT_PASSWORD_MESSAGE = "A senha atual está incorreta.";
+
+export function currentPasswordErrorMessage(error: unknown): string {
+  return authErrorFields(error).code === "invalid_credentials"
+    ? WRONG_CURRENT_PASSWORD_MESSAGE
+    : CONFIG_OR_CONNECTION_MESSAGE;
+}
+
+export function passwordUpdateErrorMessage(error: unknown): string {
+  switch (authErrorFields(error).code) {
+    case "same_password":
+      return "A nova senha precisa ser diferente da atual.";
+    case "weak_password":
+      return "O Supabase achou a nova senha fraca. Use uma mais longa e variada.";
+    case "reauthentication_needed":
+      return "O Supabase pediu uma confirmação extra pra trocar a senha. Troque pelo dashboard.";
+    default:
+      return CONFIG_OR_CONNECTION_MESSAGE;
+  }
+}

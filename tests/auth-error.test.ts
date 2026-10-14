@@ -5,8 +5,11 @@ import { test } from "node:test";
 import {
   authErrorFields,
   CONFIG_OR_CONNECTION_MESSAGE,
+  currentPasswordErrorMessage,
   INVALID_CREDENTIALS_MESSAGE,
   loginErrorMessage,
+  passwordUpdateErrorMessage,
+  WRONG_CURRENT_PASSWORD_MESSAGE,
 } from "../lib/auth-error";
 import { SupabaseConfigError } from "../lib/supabase/env";
 
@@ -44,4 +47,21 @@ test("o log leva só status, code e name", () => {
     name: "AuthApiError",
   });
   assert.deepEqual(authErrorFields("erro solto"), { status: null, code: null, name: null });
+});
+
+test("troca de senha: senha atual errada e erros do updateUser em português", () => {
+  assert.equal(
+    currentPasswordErrorMessage(authError({ status: 400, code: "invalid_credentials" })),
+    WRONG_CURRENT_PASSWORD_MESSAGE,
+  );
+  assert.equal(
+    currentPasswordErrorMessage(authError({ status: 0, name: "AuthRetryableFetchError" })),
+    CONFIG_OR_CONNECTION_MESSAGE,
+  );
+  assert.match(passwordUpdateErrorMessage(authError({ code: "same_password" })), /diferente/);
+  assert.match(passwordUpdateErrorMessage(authError({ code: "weak_password" })), /fraca/);
+  assert.equal(
+    passwordUpdateErrorMessage(authError({ status: 500, code: "unexpected_failure" })),
+    CONFIG_OR_CONNECTION_MESSAGE,
+  );
 });

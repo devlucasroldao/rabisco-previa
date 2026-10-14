@@ -18,9 +18,12 @@ export default function Layout({ children }: LayoutProps<"/admin">) {
         <Link href="/admin" className="text-[15px] font-semibold">
           Rabisco Prévia
         </Link>
-        <nav className="flex-1 text-[14px]">
+        <nav className="flex flex-1 gap-4 text-[14px]">
           <Link href="/admin" className="hover:underline">
             Clientes
+          </Link>
+          <Link href="/admin/conta" className="hover:underline">
+            Conta
           </Link>
         </nav>
         <Suspense fallback={null}>

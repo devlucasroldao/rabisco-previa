@@ -16,14 +16,15 @@
 // HEVC curto em .mov, como o do iPhone; sem ele, esse passo é pulado.
 
 import { spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { megabytes } from "../lib/media";
 import { batchConfirmation } from "../lib/storage-rules";
+import { newToken } from "../lib/token";
 import { loadEnv, requireEnv } from "./env";
 
 loadEnv();
@@ -232,6 +233,40 @@ async function postsOf(presentationId: string): Promise<PostRow[]> {
   return data as PostRow[];
 }
 
+const ORDER_CHANGED_NOTE =
+  "A ordem mudou. Se o link já foi enviado, avise o cliente que os números dos posts mudaram.";
+
+// Legendas na ordem de position, conferindo que position vai de 1 a N.
+async function captionsOf(presentationId: string): Promise<string[]> {
+  const posts = await postsOf(presentationId);
+  equal(
+    posts.map((post) => post.position),
+    posts.map((_, index) => index + 1),
+    "position de 1 a N",
+  );
+  return posts.map((post) => post.caption ?? "");
+}
+
+// A ordem é salva depois do soltar; espera o banco chegar lá.
+async function waitForCaptions(presentationId: string, expected: string[]) {
+  let last: string[] = [];
+  for (let attempt = 0; attempt < 40; attempt++) {
+    last = (await postsOf(presentationId)).map((post) => post.caption ?? "");
+    if (JSON.stringify(last) === JSON.stringify(expected)) {
+      equal(await captionsOf(presentationId), expected, "ordem no banco");
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  equal(last, expected, "ordem no banco");
+}
+
+// A tela do cliente responde "não existe" (link desativado, trocado ou errado).
+async function opensAsMissing(token: string): Promise<boolean> {
+  const response = await fetch(`${BASE_URL}/p/${token}`);
+  return (await response.text()).includes("Esta prévia não existe ou foi removida");
+}
+
 function idFromUrl(page: Page): string {
   const id = new URL(page.url()).pathname.split("/").pop();
   assert(id && /^[0-9a-f-]{36}$/.test(id), `URL sem id: ${page.url()}`);
@@ -275,6 +310,9 @@ async function main() {
   const oldIds: string[] = [];
   let storyPresentationId = "";
   let recentId = "";
+  let managedId = "";
+  let managedToken = "";
+  let reelsOnlyId = "";
   const temp = mkdtempSync(path.join(os.tmpdir(), "rabisco-e2e-"));
   let actionRequest: { url: string; headers: Record<string, string>; body: Buffer } | null = null;
 
@@ -920,6 +958,189 @@ async function main() {
         .select("id", { count: "exact", head: true })
         .eq("presentation_id", storyPresentationId);
       equal(left, 0, "stories depois de excluir a apresentação");
+    });
+
+    console.log("\nGestão da apresentação");
+    await step("monta uma apresentação com 3 posts de legendas A, B e C", async () => {
+      managedId = await createPresentation(page, clientId, "Gestão E2E");
+      for (const [index, letter] of ["A", "B", "C"].entries()) {
+        await addPost(page, index + 1, async () => {
+          await page
+            .getByLabel("Imagem", { exact: true })
+            .setInputFiles(sample(["paz.jpg", "car-1.jpg", "car-2.jpg"][index]));
+          await page.getByLabel("Legenda").fill(`Legenda ${letter}`);
+        });
+      }
+      equal(await captionsOf(managedId), ["Legenda A", "Legenda B", "Legenda C"], "ordem inicial");
+    });
+
+    await step("reordena pelo teclado na alça: salva atômico, mostra Ordem salva e o aviso", async () => {
+      const handle = page.getByRole("button", { name: "Arrastar o post 1" });
+      await handle.focus();
+      await page.keyboard.press("Space");
+      await page.waitForTimeout(200);
+      await page.keyboard.press("ArrowDown");
+      await page.waitForTimeout(200);
+      await page.keyboard.press("ArrowDown");
+      await page.waitForTimeout(200);
+      await page.keyboard.press("Space");
+      await page.getByText("Ordem salva").waitFor();
+      await page.getByText(ORDER_CHANGED_NOTE).waitFor();
+      await waitForCaptions(managedId, ["Legenda B", "Legenda C", "Legenda A"]);
+    });
+
+    await step("reordena pelo botão subir", async () => {
+      await page.getByRole("button", { name: "Subir o post 3" }).click();
+      await waitForCaptions(managedId, ["Legenda B", "Legenda A", "Legenda C"]);
+    });
+
+    await step("reordena arrastando a alça com o mouse (simulado pelo Playwright)", async () => {
+      const handle = page.getByRole("button", { name: "Arrastar o post 3" });
+      const target = page.getByRole("button", { name: "Arrastar o post 1" });
+      const from = (await handle.boundingBox())!;
+      const to = (await target.boundingBox())!;
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      // Passos pequenos: o PointerSensor só começa depois de 5 px.
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2 - 10, { steps: 5 });
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2 - 10, { steps: 20 });
+      await page.waitForTimeout(200);
+      await page.mouse.up();
+      await waitForCaptions(managedId, ["Legenda C", "Legenda B", "Legenda A"]);
+    });
+
+    await step("/p/<token> mostra os posts na ordem nova", async () => {
+      const { data } = await admin.from("presentations").select("token").eq("id", managedId).single();
+      managedToken = data?.token ?? "";
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        const view = await visitor.newPage();
+        for (const [number, letter] of [[1, "C"], [2, "B"], [3, "A"]] as const) {
+          await view.goto(`${BASE_URL}/p/${managedToken}?post=${number}`);
+          await view.getByText(`Post ${number} de 3`).waitFor();
+          await view.getByText(`Legenda ${letter}`).waitFor();
+        }
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("desativa o link: selo, aviso nos botões e /p/<token> diz que não existe", async () => {
+      await page.getByRole("button", { name: "Desativar link" }).click();
+      await page.getByText("Link desativado", { exact: true }).waitFor();
+      const { data } = await admin.from("presentations").select("active").eq("id", managedId).single();
+      equal(data?.active, false, "active no banco");
+      assert(await opensAsMissing(managedToken), "o link desativado ainda abre");
+
+      await page.getByRole("button", { name: "Copiar link" }).click();
+      await page.getByText(/O link está desativado/).waitFor();
+      await page.getByRole("button", { name: "Ver como cliente" }).click();
+      await page.getByText(/O link está desativado/).waitFor();
+    });
+
+    await step("reativa o link e ele volta a abrir", async () => {
+      await page.getByRole("button", { name: "Reativar link" }).click();
+      await page.getByRole("button", { name: "Desativar link" }).waitFor();
+      equal(await page.getByText("Link desativado", { exact: true }).count(), 0, "selo");
+      assert(!(await opensAsMissing(managedToken)), "o link reativado não abre");
+    });
+
+    await step("regenera o link com confirmação: o antigo diz que não existe e o novo abre e copia", async () => {
+      const oldToken = managedToken;
+      await page.getByRole("button", { name: "Regenerar link" }).click();
+      await page.getByText("O link antigo deixa de funcionar. Quem o recebeu precisará do novo.").waitFor();
+      await page.getByRole("button", { name: "Regenerar", exact: true }).click();
+      await page.getByText(/^Link regenerado/).waitFor();
+
+      const { data } = await admin.from("presentations").select("token").eq("id", managedId).single();
+      managedToken = data?.token ?? "";
+      assert(/^[A-Za-z0-9_-]{12}$/.test(managedToken), `token novo fora do padrão: ${managedToken}`);
+      assert(managedToken !== oldToken, "o token não mudou");
+      assert(await opensAsMissing(oldToken), "o link antigo ainda abre");
+      assert(!(await opensAsMissing(managedToken)), "o link novo não abre");
+
+      await page.getByRole("button", { name: "Copiar link" }).click();
+      await page.getByText("Link copiado").waitFor();
+      equal(
+        await page.evaluate(() => navigator.clipboard.readText()),
+        `${BASE_URL}/p/${managedToken}`,
+        "área de transferência",
+      );
+    });
+
+    await step("Reels único abre direto e mostra o aviso de vídeo comprimido em 11 px", async () => {
+      // Montada pela API admin: o Reels pelo painel já é coberto acima.
+      reelsOnlyId = randomUUID();
+      const reelsToken = newToken();
+      const folder = `presentations/${reelsOnlyId}`;
+      const { error } = await admin
+        .from("presentations")
+        .insert({ id: reelsOnlyId, client_id: clientId, title: "Reels único E2E", token: reelsToken });
+      if (error) throw new Error(error.message);
+      for (const [name, type] of [["reels.mp4", "video/mp4"], ["reels-capa.jpg", "image/jpeg"]]) {
+        const { error: uploadError } = await admin.storage
+          .from(BUCKET)
+          .upload(`${folder}/${name}`, readFileSync(sample(name)), { contentType: type });
+        if (uploadError) throw new Error(uploadError.message);
+      }
+      const { error: postError } = await admin.from("posts").insert({
+        presentation_id: reelsOnlyId,
+        position: 1,
+        type: "reels",
+        caption: "Reels único",
+        media: [{ path: `${folder}/reels.mp4`, kind: "video", poster: `${folder}/reels-capa.jpg` }],
+      });
+      if (postError) throw new Error(postError.message);
+
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        const view = await visitor.newPage();
+        await view.goto(`${BASE_URL}/p/${reelsToken}`);
+        await view.getByText("Post 1 de 1").waitFor();
+        equal(await view.getByRole("button", { name: /^Abrir post/ }).count(), 0, "grid");
+        const note = view.getByText(COMPRESSED_NOTE);
+        await note.waitFor();
+        equal(await note.evaluate((el) => getComputedStyle(el).fontSize), "11px", "tamanho do aviso");
+        const adjust = view.getByText(/Quer ajustar algo\?/);
+        const below = (await note.boundingBox())!.y > (await adjust.boundingBox())!.y;
+        assert(below, "o aviso não ficou abaixo do texto de ajuste");
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("troca a senha do usuário temporário em Conta: erros em português e a nova passa a valer", async () => {
+      const newPassword = randomBytes(24).toString("base64url");
+      await page.getByRole("link", { name: "Conta" }).click();
+      await page.waitForURL(`${BASE_URL}/admin/conta`);
+      const robots = await page.locator('meta[name="robots"]').getAttribute("content");
+      assert(robots?.includes("noindex"), `meta robots: ${robots}`);
+
+      const fill = async (current: string, next: string, confirmation: string) => {
+        await page.getByLabel("Senha atual", { exact: true }).fill(current);
+        await page.getByLabel(/^Nova senha/).fill(next);
+        await page.getByLabel("Confirme a nova senha", { exact: true }).fill(confirmation);
+        await page.getByRole("button", { name: "Trocar senha" }).click();
+      };
+
+      await fill("senha-atual-errada", newPassword, newPassword);
+      await page.getByText("A senha atual está incorreta.").waitFor();
+      await fill(password, newPassword, `${newPassword}x`);
+      await page.getByText("A confirmação não é igual à nova senha.").waitFor();
+      await fill(password, newPassword, newPassword);
+      await page.getByText(/^Senha trocada/).waitFor();
+
+      await page.getByRole("button", { name: "Sair" }).click();
+      await page.waitForURL(`${BASE_URL}/admin/login`);
+      await page.getByLabel("E-mail").fill(email);
+      // A página Conta continua no DOM, escondida: o rótulo exato evita os
+      // campos de senha dela.
+      await page.getByLabel("Senha", { exact: true }).fill(password);
+      await page.getByRole("button", { name: "Entrar" }).click();
+      await page.getByText("E-mail ou senha incorretos").waitFor();
+      await page.getByLabel("Senha", { exact: true }).fill(newPassword);
+      await page.getByRole("button", { name: "Entrar" }).click();
+      await page.waitForURL(`${BASE_URL}/admin`);
     });
 
     const hevcName = "HEVC .mov gerado na hora: comprime pra H.264 720×1280 e toca no /p/<token>";

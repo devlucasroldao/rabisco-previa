@@ -13,6 +13,7 @@ export function PostViewer({
   total,
   onNavigate,
   onClose,
+  compressedNote = false,
 }: {
   client: Client;
   post: Post;
@@ -21,6 +22,8 @@ export function PostViewer({
   onNavigate: (number: number) => void;
   // Ausente quando a apresentação tem um post só e não há grid pra voltar.
   onClose?: () => void;
+  // O aviso do rodapé do grid, pra quando o grid não aparece (Reels único).
+  compressedNote?: boolean;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -107,6 +110,13 @@ export function PostViewer({
             <strong className="font-semibold">“Post {number}: …”</strong> e o
             que quer mudar.
           </p>
+
+          {compressedNote && (
+            <p className="mt-3 text-center text-[11px] text-muted">
+              Os vídeos desta prévia estão comprimidos. O arquivo final é publicado
+              em qualidade total.
+            </p>
+          )}
 
           {total > 1 && (
             <div className="mt-4 grid grid-cols-2 gap-2">

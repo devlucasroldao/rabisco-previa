@@ -1,3 +1,4 @@
+import { isLinkActive } from "./presentation-rules";
 import { samplePresentations } from "./sample-data";
 import { numberStories } from "./stories";
 import { getSupabaseAdmin, MEDIA_BUCKET } from "./supabase/server";
@@ -15,6 +16,7 @@ const EMPTY_IMAGE =
 type StoredMedia = { path: string; kind: Media["kind"]; poster?: string | null };
 
 type PresentationRow = {
+  active: boolean;
   title: string;
   token: string;
   client: {
@@ -50,7 +52,7 @@ export async function getPresentationByToken(
   const { data, error } = await supabase
     .from("presentations")
     .select(
-      "title, token, client:clients!inner(name, handle, bio, avatar_path), posts(id, position, type, caption, media), stories(id, day, position, path)",
+      "active, title, token, client:clients!inner(name, handle, bio, avatar_path), posts(id, position, type, caption, media), stories(id, day, position, path)",
     )
     .eq("token", token)
     .order("position", { referencedTable: "posts" })
@@ -60,7 +62,9 @@ export async function getPresentationByToken(
   if (error) {
     throw new Error(`Falha ao buscar a apresentação: ${error.message}`);
   }
-  if (!data) return null;
+  // Link desativado no painel: responde como se a prévia não existisse, sem
+  // assinar nenhuma URL.
+  if (!data || !isLinkActive(data)) return null;
 
   const paths = new Set<string>();
   if (data.client.avatar_path) paths.add(data.client.avatar_path);
