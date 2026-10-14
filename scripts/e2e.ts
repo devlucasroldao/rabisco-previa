@@ -10,8 +10,15 @@
 // Variáveis opcionais: E2E_BASE_URL (padrão http://localhost:3000),
 // E2E_BROWSER (canal do Playwright, padrão msedge) e CRON_SECRET (o mesmo do
 // app; sem ele os passos do keep-alive com segredo são pulados).
+//
+// A compressão de vídeo baixa o ffmpeg.wasm do CDN, então precisa de internet.
+// Com um ffmpeg instalado no sistema (no PATH), o teste também gera na hora um
+// HEVC curto em .mov, como o do iPhone; sem ele, esse passo é pulado.
 
+import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { chromium, type Browser, type Page } from "playwright-core";
@@ -21,6 +28,9 @@ loadEnv();
 
 const BASE_URL = (process.env.E2E_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const BUCKET = "media";
+const FFMPEG_CDN = "**/cdn.jsdelivr.net/**";
+const COMPRESSING_MESSAGE =
+  "Comprimindo no seu computador. Pode levar alguns minutos, mantenha esta aba aberta.";
 const DELETE_POST_WARNING =
   "Os números dos posts seguintes vão mudar. Se o link já foi enviado ao cliente, crie uma nova apresentação em vez de apagar posts.";
 
@@ -117,6 +127,79 @@ async function jpegSize(storagePath: string): Promise<{ width: number; height: n
   throw new Error(`${storagePath} não é um JPEG legível`);
 }
 
+async function download(storagePath: string): Promise<Buffer> {
+  const { data, error } = await admin.storage.from(BUCKET).download(storagePath);
+  if (error) throw new Error(error.message);
+  return Buffer.from(await data.arrayBuffer());
+}
+
+// O que dá pra conferir de um MP4 sem decodificar: vídeo em H.264 (avc1), não
+// em HEVC, e o índice (moov) antes dos dados (mdat), que é o faststart.
+function checkCompressedMp4(bytes: Buffer, what: string) {
+  assert(bytes.includes("avc1"), `${what}: o vídeo não está em H.264`);
+  assert(!bytes.includes("hvc1") && !bytes.includes("hev1"), `${what}: o vídeo ainda está em HEVC`);
+  const moov = bytes.indexOf("moov");
+  assert(moov > 0 && moov < bytes.indexOf("mdat"), `${what}: sem faststart`);
+}
+
+function megabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+}
+
+// Escolhe o vídeo no formulário aberto e espera a compressão terminar.
+// Devolve o resumo de tamanho e tempo pro relatório.
+async function compressInForm(page: Page, file: string): Promise<string> {
+  const started = Date.now();
+  await page.getByLabel(/^Vídeo/).setInputFiles(file);
+  await page.getByText(COMPRESSING_MESSAGE).waitFor();
+  assert(
+    await page.getByRole("button", { name: "Adicionar", exact: true }).isDisabled(),
+    "o botão de salvar ficou liberado durante a compressão",
+  );
+  const sizes = page.getByText(/original [\d,]+ MB → final [\d,]+ MB/);
+  await sizes.waitFor({ timeout: 600_000 });
+  equal(await page.getByText("sem compressão").count(), 0, "avisos de envio sem compressão");
+  const seconds = ((Date.now() - started) / 1000).toFixed(1).replace(".", ",");
+  const summary = `${path.basename(file)}: ${(await sizes.innerText()).match(/original.*/)![0]}, em ${seconds} s`;
+  console.log(`          ${summary}`);
+  // A capa automática sai do quadro de 1 s.
+  await page.getByText("Quadro do vídeo em 0:01").waitFor();
+  return summary;
+}
+
+// Abre o post na tela do cliente e confere que o vídeo toca de verdade.
+async function playsForVisitor(browser: Browser, url: string, size?: [number, number]) {
+  const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  try {
+    const view = await visitor.newPage();
+    await view.goto(url);
+    const video = view.locator("video");
+    assert(await video.getAttribute("poster"), "vídeo sem poster");
+    const source = await video.evaluate((el: HTMLVideoElement) => el.currentSrc || el.src);
+    const response = await fetch(source);
+    assert(response.ok, `vídeo respondeu ${response.status}`);
+    equal(response.headers.get("content-type"), "video/mp4", "tipo do vídeo");
+
+    await video.evaluate((el: HTMLVideoElement) => {
+      el.muted = true;
+      return el.play();
+    });
+    await view.waitForFunction(() => {
+      const el = document.querySelector("video");
+      return Boolean(el && el.currentTime > 0.3 && el.videoWidth > 0);
+    });
+    if (size) {
+      equal(
+        await video.evaluate((el: HTMLVideoElement) => [el.videoWidth, el.videoHeight]),
+        size,
+        "tamanho do vídeo",
+      );
+    }
+  } finally {
+    await visitor.close();
+  }
+}
+
 type PostRow = {
   id: string;
   position: number;
@@ -174,6 +257,8 @@ async function main() {
   let presentationId = "";
   let token = "";
   let secondPresentationId = "";
+  let hevcPresentationId = "";
+  const temp = mkdtempSync(path.join(os.tmpdir(), "rabisco-e2e-"));
   let actionRequest: { url: string; headers: Record<string, string>; body: Buffer } | null = null;
 
   try {
@@ -332,12 +417,37 @@ async function main() {
       });
     });
 
-    await step("adiciona um Reels com MP4 e capa, com o aviso de H.264", async () => {
+    await step("sem o ffmpeg (CDN fora do ar), o vídeo de até 50 MB vai sem compressão, com aviso", async () => {
+      await page.route(FFMPEG_CDN, (route) => route.abort());
+      try {
+        await page.getByRole("button", { name: "Adicionar post" }).click();
+        await page.getByRole("radio", { name: "Reels" }).check();
+        await page.getByLabel(/^Vídeo/).setInputFiles(sample("reels.mp4"));
+        await page.getByText("Não deu pra carregar o compressor de vídeo").waitFor();
+        await page.getByText("será enviado sem compressão").waitFor();
+        // O original é H.264, então o navegador ainda tira a capa dele.
+        await page.getByText("Quadro do vídeo em 0:01").waitFor();
+        await page.getByRole("form", { name: "Novo post" }).getByRole("button", { name: "Cancelar", exact: true }).click();
+      } finally {
+        await page.unroute(FFMPEG_CDN);
+      }
+    });
+
+    await step("adiciona um Reels: cancela, comprime o MP4, gera a capa e troca o quadro", async () => {
       await addPost(page, 3, async () => {
         await page.getByRole("radio", { name: "Reels" }).check();
-        await page.getByText("Envie o vídeo já em H.264 (MP4).").waitFor();
+        await page.getByText("O vídeo é comprimido aqui no navegador").waitFor();
+
         await page.getByLabel(/^Vídeo/).setInputFiles(sample("reels.mp4"));
-        await page.getByLabel("Capa (imagem)").setInputFiles(sample("reels-capa.jpg"));
+        await page.getByRole("button", { name: "Cancelar compressão" }).click();
+        await page.getByText(COMPRESSING_MESSAGE).waitFor({ state: "detached" });
+        equal(await page.getByText(/original [\d,]+ MB/).count(), 0, "vídeo depois de cancelar");
+
+        await compressInForm(page, sample("reels.mp4"));
+        // Trocar o vídeo comprime de novo, na mesma página.
+        await compressInForm(page, sample("reels.mp4"));
+        await page.getByLabel(/^Quadro da capa/).fill("2");
+        await page.getByText("Quadro do vídeo em 0:02").waitFor();
         await page.getByLabel("Legenda").fill("Reels de teste");
       });
     });
@@ -352,6 +462,13 @@ async function main() {
       equal(posts[2].media[0].kind, "video", "kind do reels");
       assert(posts[2].media[0].path.endsWith(".mp4"), "extensão do vídeo");
       assert(posts[2].media[0].poster, "capa do reels");
+      equal((await jpegSize(posts[2].media[0].poster)).width, 1080, "largura da capa do reels");
+      const video = await download(posts[2].media[0].path);
+      checkCompressedMp4(video, "reels");
+      assert(
+        video.length <= 50 * 1024 * 1024,
+        `o vídeo no bucket tem ${megabytes(video.length)}`,
+      );
 
       const folder = `presentations/${presentationId}/`;
       const paths = posts.flatMap((post) =>
@@ -385,14 +502,13 @@ async function main() {
 
         await view.goto(`${BASE_URL}/p/${token}?post=3`);
         await view.getByText("Post 3 de 3").waitFor();
-        const video = view.locator("video");
-        assert(await video.getAttribute("poster"), "vídeo sem poster");
-        const response = await fetch((await video.evaluate((el: HTMLVideoElement) => el.currentSrc || el.src)));
-        assert(response.ok, `vídeo respondeu ${response.status}`);
-        equal(response.headers.get("content-type"), "video/mp4", "tipo do vídeo");
       } finally {
         await visitor.close();
       }
+    });
+
+    await step("/p/<token> toca o Reels comprimido", async () => {
+      await playsForVisitor(browser, `${BASE_URL}/p/${token}?post=3`);
     });
 
     await step("edita o post 1: legenda nova e imagem substituída, sem sobra no bucket", async () => {
@@ -450,6 +566,43 @@ async function main() {
       assert((await response.text()).includes("Esta prévia não existe ou foi removida"), "o link ainda abre");
     });
 
+    const hevcName = "HEVC .mov gerado na hora: comprime pra H.264 720×1280 e toca no /p/<token>";
+    if (spawnSync("ffmpeg", ["-version"]).status === 0) {
+      await step(hevcName, async () => {
+        // Parecido com o que sai do iPhone: HEVC (hvc1) em .mov, 1080×1920 a 60 fps.
+        const mov = path.join(temp, "hevc.mov");
+        const made = spawnSync("ffmpeg", [
+          "-v", "error", "-y",
+          "-f", "lavfi", "-i", "testsrc2=size=1080x1920:rate=60:duration=3",
+          "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+          "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p",
+          "-c:a", "aac", "-shortest", mov,
+        ]);
+        assert(made.status === 0, `o ffmpeg do sistema não gerou o HEVC: ${made.stderr}`);
+        const originalBytes = statSync(mov).size;
+
+        hevcPresentationId = await createPresentation(page, clientId, "HEVC E2E");
+        const { data } = await admin
+          .from("presentations")
+          .select("token")
+          .eq("id", hevcPresentationId)
+          .single();
+        await addPost(page, 1, async () => {
+          await page.getByRole("radio", { name: "Reels" }).check();
+          await compressInForm(page, mov);
+        });
+
+        const [post] = await postsOf(hevcPresentationId);
+        const video = await download(post.media[0].path);
+        checkCompressedMp4(video, "HEVC");
+        assert(originalBytes > 0 && video.length > 0, "arquivo vazio");
+        equal((await jpegSize(post.media[0].poster!)).width, 1080, "largura da capa");
+        await playsForVisitor(browser, `${BASE_URL}/p/${data?.token}`, [720, 1280]);
+      });
+    } else {
+      skip(hevcName, "sem ffmpeg no PATH pra gerar o HEVC");
+    }
+
     await step("excluir cliente exige o @ e apaga arquivos, apresentações e a linha", async () => {
       secondPresentationId = await createPresentation(page, clientId, "Segunda semana");
       await addPost(page, 1, async () => {
@@ -467,6 +620,9 @@ async function main() {
 
       equal(await listBucket(`clients/${clientId}`), [], "arquivos do cliente");
       equal(await listBucket(`presentations/${secondPresentationId}`), [], "arquivos da apresentação");
+      if (hevcPresentationId) {
+        equal(await listBucket(`presentations/${hevcPresentationId}`), [], "arquivos do HEVC");
+      }
       const { data } = await admin.from("clients").select("id").eq("id", clientId);
       equal(data, [], "linha do cliente");
     });
@@ -501,6 +657,7 @@ async function main() {
     }
   } finally {
     await opened?.close();
+    rmSync(temp, { recursive: true, force: true });
 
     console.log("\nLimpeza");
     await step("apaga os dados, os arquivos e o usuário de teste", async () => {
@@ -508,7 +665,12 @@ async function main() {
         .from("clients")
         .select("id, presentations(id)")
         .eq("handle", handle);
-      const folders = [clientId && `clients/${clientId}`, presentationId, secondPresentationId]
+      const folders = [
+        clientId && `clients/${clientId}`,
+        presentationId,
+        secondPresentationId,
+        hevcPresentationId,
+      ]
         .filter(Boolean)
         .map((item) => (item.includes("/") ? item : `presentations/${item}`));
       for (const client of clients ?? []) {
