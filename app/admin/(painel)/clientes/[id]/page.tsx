@@ -7,6 +7,8 @@ import { DeletePresentationButton } from "@/components/admin/delete-presentation
 import { PresentationForm } from "@/components/admin/presentation-form";
 import { secondaryButtonClass } from "@/components/admin/ui";
 import { getClient, type AdminPresentation } from "@/lib/admin-data";
+import { megabytes } from "@/lib/media";
+import { ageLabel, isOld } from "@/lib/storage-rules";
 
 const dateFormat = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
@@ -71,15 +73,24 @@ async function ClientLoader({
 }
 
 function PresentationRow({ presentation }: { presentation: AdminPresentation }) {
-  const { id, title, token, createdAt, postCount } = presentation;
+  const { id, title, token, createdAt, postCount, ageDays, bytes } = presentation;
+  const age = ageLabel(ageDays);
 
   return (
     <li className="flex flex-wrap items-center gap-2 py-3">
       <span className="min-w-0 flex-1 basis-60">
-        <span className="block truncate text-[14px] font-semibold">{title}</span>
-        <span className="block text-[13px] text-muted">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-[14px] font-semibold">{title}</span>
+          {isOld(ageDays) && (
+            <span className="shrink-0 rounded border border-amber-300 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              Antiga
+            </span>
+          )}
+        </span>
+        <span className="block text-[13px] text-muted tabular-nums">
           {createdAt && `${dateFormat.format(new Date(createdAt))} · `}
-          {postCount} {postCount === 1 ? "post" : "posts"}
+          {age && `${age} · `}
+          {megabytes(bytes)} · {postCount} {postCount === 1 ? "post" : "posts"}
         </span>
       </span>
       <Link href={`/admin/apresentacoes/${id}`} className={secondaryButtonClass}>

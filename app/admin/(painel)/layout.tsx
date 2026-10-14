@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/admin/actions";
+import { StorageMeter } from "@/components/admin/storage-meter";
 import { secondaryButtonClass } from "@/components/admin/ui";
-import { getStaffEmail } from "@/lib/admin-data";
+import { getStaffEmail, getStorageUsage } from "@/lib/admin-data";
 
 export const metadata: Metadata = { title: "Painel · Rabisco Prévia" };
 
@@ -22,6 +23,9 @@ export default function Layout({ children }: LayoutProps<"/admin">) {
             Clientes
           </Link>
         </nav>
+        <Suspense fallback={null}>
+          <Storage />
+        </Suspense>
         <span className="text-[13px] text-muted">
           <Suspense fallback={null}>
             <StaffEmail />
@@ -36,6 +40,10 @@ export default function Layout({ children }: LayoutProps<"/admin">) {
       <main className="py-8">{children}</main>
     </div>
   );
+}
+
+async function Storage() {
+  return <StorageMeter bytes={await getStorageUsage()} />;
 }
 
 async function StaffEmail() {
