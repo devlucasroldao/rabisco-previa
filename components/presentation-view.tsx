@@ -162,6 +162,7 @@ export function PresentationView({
           total={total}
           onNavigate={navigate}
           onClose={single ? undefined : close}
+          compressedNote={single && posts[0].type === "reels"}
         />
       )}
     </>
