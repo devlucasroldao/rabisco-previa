@@ -37,7 +37,7 @@ async function PresentationLoader({
           title="Apresentação não encontrada"
           crumbs={[{ label: "Início", href: "/admin" }]}
         />
-        <p className="text-[14px] text-muted">
+        <p className="text-[14px] text-fg-muted">
           Esta apresentação não existe ou foi removida.
         </p>
       </>

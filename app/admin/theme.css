@@ -81,17 +81,6 @@
   --font-sans: var(--font-brand-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: var(--font-brand-display), var(--font-sans);
 
-  /*
-   * Nomes antigos (os mesmos da tela do cliente), apontando pros tokens novos:
-   * componentes do painel que ainda usam bg-background, text-muted,
-   * border-line, bg-surface ou text-accent já saem com a marca.
-   */
-  --background: var(--bg);
-  --foreground: var(--text);
-  --muted: var(--text-muted);
-  --line: var(--border);
-  --surface: var(--bg-subtle);
-
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
@@ -225,6 +214,36 @@ html:has(.admin dialog[open]:modal) {
   animation: admin-fade-up var(--dur-base) var(--ease) both;
 }
 
+/* Itens de lista entram com um fade curto. */
+.admin .admin-list-in {
+  animation: admin-fade var(--dur-base) var(--ease) both;
+}
+
+/* Botões e linhas: o clique afunda de leve (só transform). */
+.admin button:not(:disabled):active,
+.admin a[href]:active {
+  transform: scale(0.985);
+}
+.admin button,
+.admin a[href] {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease);
+}
+
+/* Dropzone: o ícone sobe um pouco quando um arquivo passa por cima. */
+.admin .admin-dropzone-icon {
+  transition: transform var(--dur-base) var(--ease);
+}
+.admin .admin-dropzone[data-over] .admin-dropzone-icon {
+  transform: translateY(-3px) scale(1.08);
+}
+
+/* Barra de progresso: avança suave entre um evento e outro. */
+.admin .admin-progress-fill {
+  transition: transform var(--dur-base) linear;
+}
+
 .admin .skeleton {
   background: var(--bg-hover);
   border-radius: var(--radius-sm);
@@ -330,5 +349,10 @@ html:has(.admin dialog[open]:modal) {
   .admin-panel::backdrop {
     animation: none !important;
     transition-property: color, background-color, border-color !important;
+  }
+  .admin button:active,
+  .admin a[href]:active,
+  .admin .admin-dropzone[data-over] .admin-dropzone-icon {
+    transform: none !important;
   }
 }

@@ -302,7 +302,7 @@ function SortablePost({
         onClick={onEdit}
         disabled={pending}
         aria-label={`Editar o post ${number}`}
-        className={`${buttonClass("ghost")} hidden sm:inline-flex ${revealClass}`}
+        className={`${buttonClass("ghost")} hidden [@media(hover:hover)]:sm:inline-flex ${revealClass}`}
       >
         <Pencil size={15} aria-hidden="true" />
         Editar

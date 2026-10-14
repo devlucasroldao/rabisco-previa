@@ -1,7 +1,7 @@
 export function Avatar({ url, size }: { url?: string | null; size: number }) {
   return (
     <span
-      className="block shrink-0 overflow-hidden rounded-full border border-line bg-surface"
+      className="block shrink-0 overflow-hidden rounded-full border border-border bg-bg-subtle"
       style={{ width: size, height: size }}
     >
       {url && (
