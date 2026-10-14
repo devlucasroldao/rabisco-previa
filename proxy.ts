@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSupabasePublicEnv } from "@/lib/supabase/env";
 
 const LOGIN_PATH = "/admin/login";
 
@@ -10,13 +11,17 @@ export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
   const isLogin = request.nextUrl.pathname === LOGIN_PATH;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
+  // Ambiente mal configurado: ninguém entra, mas a tela de login continua
+  // abrindo. A mensagem diz qual variável tem problema, sem o valor.
+  let env: ReturnType<typeof getSupabasePublicEnv>;
+  try {
+    env = getSupabasePublicEnv();
+  } catch (error) {
+    console.error(`[proxy] ${error instanceof Error ? error.message : "configuração inválida"}`);
     return isLogin ? response : NextResponse.redirect(new URL(LOGIN_PATH, request.url));
   }
 
-  const supabase = createServerClient(url, anonKey, {
+  const supabase = createServerClient(env.url, env.anonKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet) {

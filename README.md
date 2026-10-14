@@ -45,6 +45,8 @@ Outros comandos: `pnpm build`, `pnpm start` e `pnpm lint`.
    - `SUPABASE_SERVICE_ROLE_KEY`
 
    A `service_role` ignora o RLS: fica só no servidor, nunca com o prefixo `NEXT_PUBLIC_`. O `.env.local` não vai pro repositório.
+
+   Os valores entram sem aspas, e a URL começa com `https://` e não termina com `/`. O app tira os espaços das pontas e recusa o resto com um erro que cita a variável (sem mostrar o valor). `pnpm check:auth` confere se o Supabase aceita a URL e a chave pública do `.env.local`: imprime só o status HTTP e `OK` ou `FALHOU`.
 2. Aplique as migrations no projeto remoto (não precisa de Docker):
 
    ```bash
@@ -87,6 +89,8 @@ CRON_SECRET=<o-mesmo-nos-dois> pnpm start        # num terminal
 CRON_SECRET=<o-mesmo-nos-dois> pnpm test:e2e     # em outro
 ```
 
+`pnpm test` roda os testes de unidade (validação das variáveis e mensagens de erro do login), sem rede.
+
 `E2E_BASE_URL` muda o endereço do app (padrão `http://localhost:3000`) e `E2E_BROWSER` muda o navegador (padrão `msedge`; use `chrome` se preferir). Sem `CRON_SECRET`, o passo do keep-alive com segredo é pulado.
 
 ### Quem acessa o quê
@@ -108,6 +112,10 @@ pnpm check:anon <caminho-de-um-arquivo-no-bucket>
 ```
 
 O `pnpm seed` imprime esse comando já com um caminho real.
+
+### Quando o login falha
+
+Senha ou e-mail errados mostram "E-mail ou senha incorretos.". Qualquer outra falha (chave pública inválida, 401/403, rede, variável ausente ou mal formatada) mostra "Erro de configuração ou de conexão." e deixa uma linha `[login]` no log do servidor (na Vercel: Logs do projeto) com o `status`, o `code` e o `name` do erro, ou com o nome da variável com problema. O log nunca leva e-mail, senha nem chave.
 
 ### Deploy na Vercel
 

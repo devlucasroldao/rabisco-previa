@@ -9,6 +9,8 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
     "check:anon": "tsx scripts/check-anon.ts",
+    "check:auth": "tsx scripts/check-auth-config.ts",
+    "test": "tsx --test tests/*.test.ts",
     "test:e2e": "tsx scripts/e2e.ts"
   },
   "dependencies": {
