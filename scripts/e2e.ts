@@ -22,6 +22,8 @@ import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { chromium, type Browser, type Page } from "playwright-core";
+import { megabytes } from "../lib/media";
+import { batchConfirmation } from "../lib/storage-rules";
 import { loadEnv, requireEnv } from "./env";
 
 loadEnv();
@@ -142,8 +144,20 @@ function checkCompressedMp4(bytes: Buffer, what: string) {
   assert(moov > 0 && moov < bytes.indexOf("mdat"), `${what}: sem faststart`);
 }
 
-function megabytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+// Soma dos tamanhos dos arquivos de uma pasta do bucket.
+async function bucketBytes(folder: string): Promise<number> {
+  const { data, error } = await admin.storage.from(BUCKET).list(folder, { limit: 1000 });
+  if (error) throw new Error(error.message);
+  return data.reduce((sum, file) => sum + Number(file.metadata?.size ?? 0), 0);
+}
+
+const COMPRESSED_NOTE =
+  "Os vídeos desta prévia estão comprimidos. O arquivo final é publicado em qualidade total.";
+
+// O medidor do cabeçalho, em MB, lido da tela.
+async function meterMegabytes(page: Page): Promise<number> {
+  const text = await page.getByText(/^Armazenamento: [\d,]+ MB de 1 GB \(<?\d+%\)$/).innerText();
+  return Number(text.match(/([\d,]+) MB/)![1].replace(",", "."));
 }
 
 // Escolhe o vídeo no formulário aberto e espera a compressão terminar.
@@ -258,6 +272,8 @@ async function main() {
   let token = "";
   let secondPresentationId = "";
   let hevcPresentationId = "";
+  const oldIds: string[] = [];
+  let recentId = "";
   const temp = mkdtempSync(path.join(os.tmpdir(), "rabisco-e2e-"));
   let actionRequest: { url: string; headers: Record<string, string>; body: Buffer } | null = null;
 
@@ -493,6 +509,8 @@ async function main() {
         await view.getByRole("button", { name: "Abrir post 3, Reels" }).waitFor();
         equal(await view.getByRole("button", { name: /^Abrir post/ }).count(), 3, "posts no grid");
 
+        await view.getByText(COMPRESSED_NOTE).waitFor();
+
         await view.goto(`${BASE_URL}/p/${token}?post=2`);
         await view.getByText("Post 2 de 3").waitFor();
         await view.getByText("Carrossel de teste").waitFor();
@@ -564,6 +582,101 @@ async function main() {
 
       const response = await fetch(`${BASE_URL}/p/${token}`);
       assert((await response.text()).includes("Esta prévia não existe ou foi removida"), "o link ainda abre");
+    });
+
+    console.log("\nArmazenamento e limpeza");
+    await step("apresentações de teste mostram idade, tamanho, posts e o selo Antiga", async () => {
+      for (const title of ["Antiga E2E A", "Antiga E2E B"]) {
+        const created = await createPresentation(page, clientId, title);
+        await addPost(page, 1, async () => {
+          await page.getByLabel("Imagem", { exact: true }).setInputFiles(sample("car-1.jpg"));
+        });
+        oldIds.push(created);
+      }
+      recentId = await createPresentation(page, clientId, "Recente E2E");
+      await addPost(page, 1, async () => {
+        await page.getByLabel("Imagem", { exact: true }).setInputFiles(sample("car-2.jpg"));
+      });
+      await addPost(page, 2, async () => {
+        await page.getByLabel("Imagem", { exact: true }).setInputFiles(sample("car-3.jpg"));
+      });
+
+      // 30 dias atrás: a única forma de ter uma apresentação velha num teste.
+      const past = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
+      const { error } = await admin.from("presentations").update({ created_at: past }).in("id", oldIds);
+      if (error) throw new Error(error.message);
+
+      await page.goto(`${BASE_URL}/admin/clientes/${clientId}`);
+      const expected = [
+        { title: "Antiga E2E A", id: oldIds[0], age: "30 dias", posts: "1 post", old: true },
+        { title: "Antiga E2E B", id: oldIds[1], age: "30 dias", posts: "1 post", old: true },
+        { title: "Recente E2E", id: recentId, age: "hoje", posts: "2 posts", old: false },
+      ];
+      for (const item of expected) {
+        const row = page.getByRole("listitem").filter({ hasText: item.title });
+        const text = await row.innerText();
+        const size = megabytes(await bucketBytes(`presentations/${item.id}`));
+        for (const part of [item.age, size, item.posts]) {
+          assert(text.includes(part), `${item.title}: esperava "${part}" em "${text}"`);
+        }
+        equal(await row.getByText("Antiga", { exact: true }).count(), item.old ? 1 : 0, `selo de ${item.title}`);
+      }
+    });
+
+    await step("/p/<token> sem Reels não mostra o aviso de vídeo comprimido", async () => {
+      const { data } = await admin.from("presentations").select("token").eq("id", recentId).single();
+      const visitor = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      try {
+        const view = await visitor.newPage();
+        await view.goto(`${BASE_URL}/p/${data?.token}`);
+        await view.getByText("Prévia preparada pela Rabisco").waitFor();
+        equal(await view.getByText(COMPRESSED_NOTE).count(), 0, "aviso sem Reels");
+      } finally {
+        await visitor.close();
+      }
+    });
+
+    await step("limpeza em lote apaga as antigas selecionadas, sem sobra no bucket, e atualiza o medidor", async () => {
+      const sizes = await Promise.all(oldIds.map((item) => bucketBytes(`presentations/${item}`)));
+      const freed = sizes[0] + sizes[1];
+      assert(freed > 0, "as apresentações antigas não têm arquivo");
+
+      await page.goto(`${BASE_URL}/admin`);
+      const before = await meterMegabytes(page);
+      const client = `Teste E2E ${run}`;
+      const recent = page.getByLabel(`Selecionar ${client}: Recente E2E`);
+      equal(await recent.count(), 0, "a recente na lista de antigas");
+      for (const title of ["Antiga E2E A", "Antiga E2E B"]) {
+        await page.getByLabel(`Selecionar ${client}: ${title}`).check();
+      }
+      await page.getByText(`2 apresentações, ${megabytes(freed)}`).waitFor();
+
+      await page.getByRole("button", { name: "Apagar selecionadas" }).click();
+      const dialog = page.getByRole("alertdialog", { name: "Confirmar exclusão" });
+      equal(
+        await dialog.locator("p").innerText(),
+        batchConfirmation(sizes.map((bytes) => ({ bytes }))),
+        "texto da confirmação",
+      );
+      await dialog.getByRole("button", { name: "Apagar", exact: true }).click();
+      await page.getByText(`2 apresentações apagadas, ${megabytes(freed)} liberados.`).waitFor({ timeout: 60_000 });
+
+      for (const item of oldIds) {
+        equal(await listBucket(`presentations/${item}`), [], `arquivos de ${item}`);
+      }
+      const { data } = await admin.from("presentations").select("id").in("id", [...oldIds, recentId]);
+      equal(data?.map((row) => row.id), [recentId], "apresentações que sobraram");
+
+      // O medidor cai pelo menos o que foi liberado (o arredondamento é de 0,1 MB).
+      await page.waitForFunction(
+        (limit) => {
+          const match = document.body.innerText.match(/Armazenamento: ([\d,]+) MB/);
+          return match ? Number(match[1].replace(",", ".")) <= limit : false;
+        },
+        before - freed / 1024 / 1024 + 0.1,
+      );
+      const after = await meterMegabytes(page);
+      console.log(`          medidor: ${before} MB → ${after} MB (liberados ${megabytes(freed)})`);
     });
 
     const hevcName = "HEVC .mov gerado na hora: comprime pra H.264 720×1280 e toca no /p/<token>";
@@ -670,6 +783,8 @@ async function main() {
         presentationId,
         secondPresentationId,
         hevcPresentationId,
+        ...oldIds,
+        recentId,
       ]
         .filter(Boolean)
         .map((item) => (item.includes("/") ? item : `presentations/${item}`));
