@@ -199,19 +199,23 @@ function StoriesAvatar({
       {entry.hint && (
         <div
           role="note"
-          className="absolute top-1/2 left-[106px] z-10 flex max-w-[230px] -translate-y-1/2 items-center rounded-[12px] bg-foreground py-1 pl-3 text-[13px] leading-[1.35] font-medium text-background shadow-lg"
+          // Abaixo do avatar: cobre no máximo o começo da bio, nunca o @ nem o
+          // nome, que ficam ao lado da foto.
+          // Uma linha só e baixinho (o X passa da borda pra manter os 44 px de
+          // alvo), pra tapar só a primeira linha da bio.
+          className="absolute top-full left-0 z-10 mt-1 flex h-7 w-max max-w-full items-center rounded-[10px] bg-foreground pl-3 text-[13px] leading-none font-medium whitespace-nowrap text-background shadow-lg"
         >
-          {/* Seta apontando pro avatar. */}
+          {/* Seta apontando pra cima, pro centro do avatar (96 px). */}
           <span
             aria-hidden="true"
-            className="absolute top-1/2 -left-[6px] size-3 -translate-y-1/2 rotate-45 bg-foreground"
+            className="absolute -top-[6px] left-[42px] size-3 rotate-45 bg-foreground"
           />
-          <span className="relative">Toque na foto para ver os stories da semana</span>
+          <span className="relative truncate">Toque na foto para ver os stories da semana</span>
           <button
             type="button"
             onClick={entry.onDismissHint}
             aria-label="Fechar a dica"
-            className="relative flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-accent"
+            className="relative -my-2 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-accent"
           >
             <CloseIcon size={16} />
           </button>
