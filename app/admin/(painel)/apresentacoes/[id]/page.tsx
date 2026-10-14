@@ -1,10 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { CopyLinkButton } from "@/components/admin/copy-link-button";
+import { LinkControls } from "@/components/admin/link-controls";
 import { PostsEditor } from "@/components/admin/posts-editor";
 import { PresentationTitleForm } from "@/components/admin/presentation-title-form";
 import { StoriesEditor } from "@/components/admin/stories-editor";
-import { secondaryButtonClass } from "@/components/admin/ui";
 import { getPresentation } from "@/lib/admin-data";
 
 export default function Page({
@@ -35,7 +34,7 @@ async function PresentationLoader({
       </>
     );
   }
-  const { client, posts, stories, title, token } = presentation;
+  const { active, client, posts, stories, title, token } = presentation;
 
   return (
     <>
@@ -45,19 +44,16 @@ async function PresentationLoader({
       >
         ← {client.name}
       </Link>
-      <div className="mt-2 mb-6 flex flex-wrap items-center gap-2">
+      <div className="mt-2 mb-6 flex flex-wrap items-start gap-2">
         <h1 className="min-w-0 flex-1 basis-60 truncate text-[20px] font-semibold">
           {title}
         </h1>
-        <CopyLinkButton token={token} />
-        <a
-          href={`/p/${token}`}
-          target="_blank"
-          rel="noreferrer"
-          className={secondaryButtonClass}
-        >
-          Ver como cliente
-        </a>
+        <LinkControls
+          presentationId={presentation.id}
+          token={token}
+          active={active}
+          regenerate
+        />
       </div>
       <PresentationTitleForm id={presentation.id} title={title} />
 

@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { ClientForm } from "@/components/admin/client-form";
-import { CopyLinkButton } from "@/components/admin/copy-link-button";
 import { DeleteClient } from "@/components/admin/delete-client";
 import { DeletePresentationButton } from "@/components/admin/delete-presentation-button";
+import { LinkControls } from "@/components/admin/link-controls";
 import { PresentationForm } from "@/components/admin/presentation-form";
 import { secondaryButtonClass } from "@/components/admin/ui";
 import { getClient, type AdminPresentation } from "@/lib/admin-data";
@@ -73,7 +73,8 @@ async function ClientLoader({
 }
 
 function PresentationRow({ presentation }: { presentation: AdminPresentation }) {
-  const { id, title, token, createdAt, postCount, ageDays, bytes } = presentation;
+  const { id, title, token, active, createdAt, postCount, ageDays, bytes } =
+    presentation;
   const age = ageLabel(ageDays);
 
   return (
@@ -96,15 +97,7 @@ function PresentationRow({ presentation }: { presentation: AdminPresentation }) 
       <Link href={`/admin/apresentacoes/${id}`} className={secondaryButtonClass}>
         Editar
       </Link>
-      <CopyLinkButton token={token} />
-      <a
-        href={`/p/${token}`}
-        target="_blank"
-        rel="noreferrer"
-        className={secondaryButtonClass}
-      >
-        Ver como cliente
-      </a>
+      <LinkControls presentationId={id} token={token} active={active} />
       <DeletePresentationButton id={id} title={title} />
     </li>
   );
