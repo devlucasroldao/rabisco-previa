@@ -14,7 +14,7 @@ A especificação completa está em [docs/SPEC.md](docs/SPEC.md).
 
 ## Estado atual
 
-**Etapa 6: gestão da apresentação.** Reordenar posts arrastando, desativar, reativar e regenerar o link, e trocar a senha no painel. Antes vieram os stories (5), o medidor de armazenamento e a limpeza das semanas antigas (4B) e a compressão de vídeo no navegador (4A). Ficam pra depois: upload em massa e agrupar arquivos em carrossel.
+**Redesenho do painel com a identidade da Rabisco**, depois da Etapa 6 (gestão da apresentação: reordenar posts arrastando, desativar, reativar e regenerar o link, e trocar a senha). Antes vieram os stories (5), o medidor de armazenamento e a limpeza das semanas antigas (4B) e a compressão de vídeo no navegador (4A). Ficam pra depois: upload em massa e agrupar arquivos em carrossel.
 
 - `/admin`: painel da equipe, com login por e-mail e senha. Cadastra clientes, monta as apresentações e adiciona os posts (post, carrossel ou Reels)
 - `/p/<token>`: apresentação lida do Supabase, com a mídia num bucket privado servida por URL assinada (validade de 6 horas)
@@ -69,9 +69,14 @@ Rodar `pnpm seed` de novo cria outra apresentação e reaproveita o cliente.
 
 O painel fica em <http://localhost:3000/admin> e não tem cadastro nem "esqueci a senha": crie os usuários da equipe no Supabase, em Authentication > Users > Add user, com e-mail, senha e "Auto Confirm User". Cada pessoa troca a própria senha em Conta (veja abaixo); senha esquecida se resolve pelo dashboard.
 
-- **Clientes** (`/admin`): nome, @, bio e foto. A foto é recortada em quadrado de 320×320 no navegador. Excluir um cliente pede o @ digitado e apaga as apresentações, os posts e os arquivos dele.
-- **Apresentações** (`/admin/clientes/<id>`): criar com um título, copiar o link do cliente, ver como cliente, desativar ou reativar o link e excluir.
-- **Posts** (`/admin/apresentacoes/<id>`): um por vez. Post tem 1 imagem, carrossel tem de 2 a 10 (com subir e descer pra ordenar) e Reels tem 1 vídeo e 1 capa. A legenda aceita até 2200 caracteres.
+A barra lateral lista os clientes (com filtro a partir de 9), tem "Novo cliente", o medidor de armazenamento e o menu da conta (tema Claro/Escuro/Sistema, trocar senha e sair). No celular ela vira gaveta, aberta pelo botão do topo.
+
+- **Início** (`/admin`): clientes e apresentações mais recentes e o atalho pro armazenamento.
+- **Cliente** (`/admin/clientes/<id>`): avatar, nome, @ e bio; "Editar cliente" abre um painel lateral (nome, @, bio e foto, recortada em 320×320 no navegador). Excluir fica no "⋯" e pede o @ digitado. Cada apresentação aparece com posts, peso, idade, o selo "Antiga" e o estado do link; o "⋯" da linha abre, copia o link, mostra como cliente, desativa/reativa e exclui.
+- **Apresentação** (`/admin/apresentacoes/<id>`): título com lápis pra renomear, "Copiar link" (ação principal), "Ver como cliente" e o "⋯" com desativar/reativar e regenerar. Novo post e editar post abrem num painel lateral: tipo (Post, Carrossel, Reels), arquivos por arrastar e soltar ou clique, prévia com nome e peso, barra de progresso real e a ordem das imagens do carrossel. A legenda aceita até 2200 caracteres.
+- **Armazenamento** (`/admin/armazenamento`): o uso do bucket e a limpeza das apresentações antigas (veja abaixo).
+
+Tudo que apaga ou troca o link pede confirmação num dialog que explica a consequência; o resultado aparece num aviso no canto (toast).
 
 As imagens são redimensionadas no navegador pra até 1080 px de largura, em JPEG. O vídeo é comprimido no navegador (veja abaixo) e o arquivo final tem que caber em 50 MB, que é o limite por arquivo do plano gratuito do Supabase.
 
@@ -83,13 +88,13 @@ Excluir um post, uma apresentação ou um cliente apaga primeiro os arquivos do 
 
 Dentro de `/admin/apresentacoes/<id>`:
 
-- **Reordenar posts:** arraste pela alça (⋮⋮) à esquerda de cada post ou use os botões ↑ e ↓. Pelo teclado: Tab até a alça, espaço ou Enter pra pegar, setas pra mover, espaço ou Enter pra soltar e Esc pra cancelar. A lista muda na hora e volta sozinha se o banco recusar. Depois de salvar aparece "Ordem salva" e o lembrete de que, se o link já foi enviado, o cliente precisa saber que os números mudaram. Os stories continuam com ↑ e ↓.
-- **Desativar e reativar o link:** com o link desativado, a tela do cliente mostra "Esta prévia não existe ou foi removida", a apresentação ganha o selo "Link desativado" e "Copiar link" e "Ver como cliente" só mostram o aviso. Reativar devolve o mesmo link. Esses botões também aparecem na lista de apresentações do cliente.
-- **Regenerar o link:** troca o token por um novo (o mesmo `nanoid(12)` do seed) depois de uma confirmação na tela. O link antigo deixa de funcionar na hora.
+- **Reordenar posts:** arraste pela alça (⋮⋮) à esquerda de cada post (aparece ao passar o mouse; no toque fica sempre visível) ou use "Subir" e "Descer" no "⋯". Pelo teclado: Tab até a alça, espaço ou Enter pra pegar, setas pra mover, espaço ou Enter pra soltar e Esc pra cancelar. A lista muda na hora e volta sozinha se o banco recusar. Depois de salvar aparece o aviso "Ordem salva" com o lembrete de que, se o link já foi enviado, o cliente precisa saber que os números mudaram. Os stories têm "Subir", "Descer" e "Mover para outro dia" no "⋯".
+- **Desativar e reativar o link:** com o link desativado, a tela do cliente mostra "Esta prévia não existe ou foi removida", a apresentação ganha o selo "Link desativado" e "Copiar link" e "Ver como cliente" só mostram o aviso. Reativar devolve o mesmo link. As mesmas opções aparecem no "⋯" de cada apresentação na página do cliente.
+- **Regenerar o link:** troca o token por um novo (o mesmo `nanoid(12)` do seed) depois de uma confirmação. O link antigo deixa de funcionar na hora.
 
 A ordem é salva pela função SQL `reorder_posts`, que confere se a lista tem exatamente os posts da apresentação (sem faltar, sobrar ou repetir) e renumera `position` de 1 a N numa instrução só. Ela roda como quem chama (`security invoker`), então a RLS de `authenticated` continua valendo, e só `authenticated` pode executá-la.
 
-**Conta** (`/admin/conta`, no cabeçalho): troca a própria senha. Pede a senha atual (conferida com um login novo antes de trocar), a nova com pelo menos 12 caracteres e a confirmação. Não precisa sair e entrar de novo. Esquecer a senha continua sendo resolvido pelo dashboard do Supabase.
+**Conta** (`/admin/conta`, no menu da conta): troca a própria senha. Pede a senha atual (conferida com um login novo antes de trocar), a nova com pelo menos 12 caracteres e a confirmação. Não precisa sair e entrar de novo. Esquecer a senha continua sendo resolvido pelo dashboard do Supabase.
 
 ### Stories
 
@@ -132,9 +137,9 @@ Limites conhecidos: uma thread só, então a conversão leva de 2 a 3 vezes a du
 
 Tudo cabe no plano gratuito do Supabase: 1 GB de arquivos e 500 MB de banco. A equipe guarda só as últimas 3 semanas de cada cliente, porque os originais ficam no Drive e as legendas no Notion.
 
-- **Medidor:** o cabeçalho do painel mostra "Armazenamento: X MB de 1 GB (Y%)" com uma barra fina, neutra até 70%, amarela acima de 70% e vermelha acima de 90%. O limite é a constante `STORAGE_LIMIT_BYTES` em `lib/storage-rules.ts`. O medidor conta só os arquivos do bucket `media`, não o banco.
+- **Medidor:** o rodapé da barra lateral mostra "X MB de 1 GB" com uma barra fina, neutra até 70%, amarela acima de 70% e vermelha acima de 90%. O limite é a constante `STORAGE_LIMIT_BYTES` em `lib/storage-rules.ts`. O medidor conta só os arquivos do bucket `media`, não o banco.
 - **Idade e peso:** na página do cliente, cada apresentação mostra os dias desde a criação, o tamanho em MB e o número de posts. Com mais de 21 dias (`OLD_PRESENTATION_DAYS`) ela ganha o selo "Antiga".
-- **Limpeza em lote:** em `/admin`, a seção "Apresentações antigas" lista as que passaram de 21 dias, com caixas de seleção e o total. "Apagar selecionadas" pede confirmação em tela com o resumo. Cada apresentação perde primeiro os arquivos do bucket e depois a linha; se algum arquivo falhar, a linha daquela fica, o erro aparece e as demais seguem. No fim o painel diz quantas saíram e quantos MB foram liberados, e o medidor é atualizado. Nada é apagado sozinho ou por agendamento, e o servidor recusa apagar por ali uma apresentação com 21 dias ou menos.
+- **Limpeza em lote:** em `/admin/armazenamento`, a lista "Apresentações antigas" lista as que passaram de 21 dias, com caixas de seleção e o total. "Apagar selecionadas" pede confirmação em tela com o resumo. Cada apresentação perde primeiro os arquivos do bucket e depois a linha; se algum arquivo falhar, a linha daquela fica, o erro aparece e as demais seguem. No fim o painel diz quantas saíram e quantos MB foram liberados, e o medidor é atualizado. Nada é apagado sozinho ou por agendamento, e o servidor recusa apagar por ali uma apresentação com 21 dias ou menos.
 
 O painel continua sem `service_role`. As somas vêm de duas funções SQL `security definer` (`media_usage_bytes()` e `media_usage_by_presentation()`, migration `20261014120000_medidor_de_armazenamento.sql`), que só devolvem totais e só podem ser chamadas por `authenticated`. O `pnpm check:anon` confere que a `anon key` não consegue chamá-las.
 
@@ -188,19 +193,42 @@ Projeto gratuito do Supabase pausa depois de cerca de 7 dias sem atividade. O `v
 
 A rota só responde com `Authorization: Bearer <CRON_SECRET>`; sem isso devolve 401. Crie a variável `CRON_SECRET` nas Settings do projeto na Vercel, em Production, com um texto aleatório longo: a Vercel manda esse header sozinha nas chamadas do cron. Sem a variável, o cron recebe 401 e o projeto não é mantido acordado.
 
+## Identidade visual
+
+O painel e as páginas públicas usam a marca da Rabisco (terracota, mostarda e creme; Open Sans no texto e Hanken Grotesk nos títulos). A tela do cliente (`/p/<token>`) continua com o visual aprovado; dela só mudaram o favicon e a assinatura no rodapé.
+
+- **Cores do painel:** só em `app/admin/theme.css`, dentro de `.admin` (claro) e `html[data-admin-theme="dark"] .admin` (escuro). Se mudar `--bg`, mude também o fundo do `<html>` no fim do mesmo arquivo e o `themeColor` de `app/admin/layout.tsx`.
+- **Cores das páginas públicas** (início, link inexistente, 404 e erro): em `app/public-theme.css`, dentro de `.public-page`. Seguem o tema do aparelho, não o do painel.
+- **Contraste:** depois de trocar qualquer cor, rode `pnpm check:contrast`. Ele lê os dois arquivos e confere os pares usados (AA: 4.5:1 pra texto, 3:1 pra texto grande e componentes de UI).
+- **Fontes:** em `app/fonts.ts`. A Hanken Grotesk está no lugar da HK Sentiments, que não está no Google Fonts: com os `.woff2` licenciados, troque o `Hanken_Grotesk` por `next/font/local` mantendo `variable: "--font-brand-display"`.
+- **Logo e favicon:** os originais ficam em `public/brand/`. Troque-os e rode `pnpm brand:assets`, que recorta e gera as versões de `public/brand/web/`; depois copie `favicon-48.png` pra `app/icon.png` e `apple-touch-icon.png` pra `app/apple-icon.png` (o favicon vale pra todas as rotas).
+- **Assinatura:** "Plataforma criada por …", com nome e link em `lib/site.ts` (componente `components/creator-credit.tsx`).
+
+Restos do teste de ponta a ponta (cliente "Teste E2E …", usuário de teste) podem ser listados sem apagar nada com `pnpm e2e:leftovers`.
+
 ## Estrutura
 
 ```
 app/p/[token]/page.tsx        rota do cliente: busca a apresentação pelo token
+app/page.tsx, app/not-found.tsx páginas públicas com a marca (início e 404)
+app/public-theme.css          tokens das páginas públicas (seguem o tema do aparelho)
+app/fonts.ts                  Open Sans e Hanken Grotesk (next/font)
+app/icon.png, apple-icon.png  favicon da Rabisco em todas as rotas
 app/admin/
+  theme.css                   tokens do painel: cor, fonte, raio, sombra e movimento
+  layout.tsx                  tema claro/escuro sem flash e fontes do painel
   login/page.tsx              login da equipe
-  (painel)/                   clientes, apresentações, posts e conta, atrás do login
+  (painel)/                   início, clientes, apresentações, armazenamento e conta
   actions.ts                  Server Actions do painel, com validação (zod) e conferência do bucket
 app/api/cron/keepalive/       rota do cron que mantém o Supabase acordado
 proxy.ts                      renova a sessão em /admin e redireciona quem não entrou
 vercel.json                   agenda o cron diário
 components/
-  admin/                      formulários do painel
+  admin/                      telas e formulários do painel
+  admin/primitives/           dialog, menu ⋯, dropzone, selo, toast, esqueleto, título
+  admin/shell/                barra lateral, gaveta do celular, menu da conta e tema
+  public-page.tsx             página pública com a marca
+  creator-credit.tsx          assinatura do criador
   presentation-view.tsx       alterna entre grid e visualizador conforme ?post=N
   profile-grid.tsx            faixa do topo, perfil, grid 3:4 e silhuetas
   post-viewer.tsx             visualizador em tela cheia (post, carrossel, Reels)
@@ -221,6 +249,9 @@ lib/
   ffmpeg-assets.ts            arquivos do ffmpeg no CDN, com versão e hash
   upload.ts                   envio direto do navegador pro bucket, com progresso
   token.ts                    gera o token do link (painel e seed)
+  site.ts                     nome e link da assinatura do criador
+  admin-theme.ts              tema do painel (Claro/Escuro/Sistema) e o script sem flash
+  admin-shell.ts              leituras da barra lateral, uma vez por requisição
   supabase/server.ts          cliente com a service_role, só no servidor
   supabase/session.ts         cliente de servidor com a sessão da equipe e requireStaff()
   supabase/browser.ts         cliente de navegador com a sessão da equipe
@@ -229,6 +260,9 @@ scripts/
   seed.ts                     cria a apresentação de exemplo no Supabase
   check-anon.ts               prova que a anon key não lê nada
   e2e.ts                      teste de ponta a ponta do painel
+  e2e-leftovers.ts            lista o que rodadas interrompidas do e2e deixaram (sem apagar)
+  check-contrast.ts           confere o contraste dos tokens (WCAG AA)
+  brand-assets.ts             gera as versões web do logo e do favicon
 supabase/migrations/          tabelas, RLS, bucket e funções (medidor e reorder_posts)
 public/sample/                arquivos de mídia do exemplo
 ```

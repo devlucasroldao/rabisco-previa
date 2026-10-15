@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, ChevronUp, Film, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { savePost } from "@/app/admin/actions";
 import type { AdminPost } from "@/lib/admin-data";
@@ -33,9 +34,11 @@ import {
   videoInputError,
   videoInputType,
 } from "@/lib/video-rules";
+import { Dropzone } from "./primitives/dropzone";
 import { ProgressBar } from "./progress-bar";
 import {
   errorClass,
+  iconButtonClass,
   inputClass,
   labelClass,
   primaryButtonClass,
@@ -56,9 +59,6 @@ type Slot = {
   previewUrl: string | null;
   progress: number | null;
 };
-
-const fileInputClass =
-  "mt-1 block w-full text-[13px] text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-background file:px-3 file:py-1.5 file:text-[13px] file:font-medium file:text-foreground";
 
 function storedSlot(role: Role, path: string, previewUrl: string | null): Slot {
   return {
@@ -110,10 +110,13 @@ export function PostForm({
   presentationId,
   post,
   onDone,
+  onLockedChange,
 }: {
   presentationId: string;
   post?: AdminPost;
   onDone: () => void;
+  // Avisa o painel em volta pra não fechar no meio de um envio ou compressão.
+  onLockedChange?: (locked: boolean) => void;
 }) {
   const [type, setType] = useState<PostType>(post?.type ?? "post");
   const [caption, setCaption] = useState(post?.caption ?? "");
@@ -130,6 +133,10 @@ export function PostForm({
   const frameRequest = useRef(0);
   // Enquanto comprime ou envia, nada mais muda no formulário.
   const locked = busy || compressing !== null;
+
+  useEffect(() => {
+    onLockedChange?.(locked);
+  }, [locked, onLockedChange]);
 
   useEffect(
     () => () => {
@@ -180,9 +187,8 @@ export function PostForm({
     }
   }
 
-  async function chooseVideo(event: React.ChangeEvent<HTMLInputElement>) {
-    const original = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
+  async function chooseVideo(files: File[]) {
+    const original = files[0];
     setError(null);
     if (!original) return;
 
@@ -248,9 +254,7 @@ export function PostForm({
     }
   }
 
-  function addImages(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = [...(event.currentTarget.files ?? [])];
-    event.currentTarget.value = "";
+  function addImages(files: File[]) {
     setError(null);
 
     const invalid = files.find((file) => !IMAGE_INPUT_TYPES.includes(file.type));
@@ -269,9 +273,8 @@ export function PostForm({
     setSlots((current) => [...current, ...files.map((file) => newSlot("image", file))]);
   }
 
-  function chooseCover(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
+  function chooseCover(files: File[]) {
+    const file = files[0];
     setError(null);
     if (!file) return;
     if (!IMAGE_INPUT_TYPES.includes(file.type)) {
@@ -386,24 +389,31 @@ export function PostForm({
     <form
       onSubmit={onSubmit}
       aria-label={post ? "Editar post" : "Novo post"}
-      className="space-y-4 rounded-lg border border-line p-4"
+      className="space-y-5"
     >
       {post ? (
-        <p className="text-[13px] text-muted">
-          Tipo: <span className="font-medium text-foreground">{POST_TYPE_LABELS[type]}</span>
+        <p className="text-[13px] text-fg-muted">
+          Tipo: <span className="font-semibold text-fg">{POST_TYPE_LABELS[type]}</span>
         </p>
       ) : (
         <fieldset disabled={locked}>
           <legend className={labelClass}>Tipo</legend>
-          <div className="mt-1 flex gap-4 text-[14px]">
+          {/* Controle segmentado: por baixo são rádios de verdade. */}
+          <div className="mt-1.5 inline-flex rounded-lg border border-border bg-bg-subtle p-1">
             {(Object.keys(POST_TYPE_LABELS) as PostType[]).map((option) => (
-              <label key={option} className="flex items-center gap-1.5">
+              <label
+                key={option}
+                className={`relative flex min-h-9 min-w-24 cursor-pointer items-center justify-center rounded-md px-4 text-[14px] font-semibold transition-colors duration-(--dur-fast) has-focus-visible:outline-2 has-focus-visible:outline-ring ${
+                  type === option ? "bg-bg text-fg shadow-sm" : "text-fg-muted hover:text-fg"
+                }`}
+              >
                 <input
                   type="radio"
                   name="type"
                   value={option}
                   checked={type === option}
                   onChange={() => changeType(option)}
+                  className="absolute inset-0 cursor-pointer opacity-0"
                 />
                 {POST_TYPE_LABELS[option]}
               </label>
@@ -414,29 +424,25 @@ export function PostForm({
 
       {type === "reels" ? (
         <>
-          <p className="rounded-md bg-surface px-3 py-2 text-[13px]">
+          <p className="rounded-md bg-bg-subtle px-3 py-2 text-[13px] text-fg-muted">
             O vídeo é comprimido aqui no navegador antes do envio (MP4 em H.264,
             720p), então pode vir direto do iPhone ou do CapCut.
           </p>
-          <label className={labelClass}>
-            Vídeo (MP4 ou MOV, até {megabytes(VIDEO_INPUT_MAX_BYTES)})
-            <input
-              type="file"
-              accept={[...Object.keys(VIDEO_EXTENSIONS), ".mp4", ".mov"].join(",")}
-              onChange={chooseVideo}
-              disabled={locked}
-              className={fileInputClass}
-            />
-          </label>
+          <Dropzone
+            label={`Vídeo (MP4 ou MOV, até ${megabytes(VIDEO_INPUT_MAX_BYTES)})`}
+            accept={[...Object.keys(VIDEO_EXTENSIONS), ".mp4", ".mov"].join(",")}
+            onFiles={(files) => void chooseVideo(files)}
+            disabled={locked}
+          />
           {compressing && (
-            <div className="space-y-2 rounded-md border border-line p-3">
+            <div className="space-y-2 rounded-md border border-border p-3">
               <p role="status" className="text-[13px]">
                 {COMPRESSING_MESSAGE}
               </p>
               <div className="flex items-center gap-3">
                 <div className="flex-1">
                   {compressing.stage === "loading" ? (
-                    <p className="text-[12px] text-muted">Carregando o compressor…</p>
+                    <p className="text-[12px] text-fg-muted">Carregando o compressor…</p>
                   ) : (
                     <ProgressBar value={compressing.progress} label="Compressão do vídeo" />
                   )}
@@ -462,7 +468,7 @@ export function PostForm({
             />
           )}
           {videoResult?.warning && !compressing && (
-            <p role="status" className="text-[13px] text-amber-700 dark:text-amber-400">
+            <p role="status" className="rounded-md bg-highlight-subtle px-3 py-2 text-[13px] text-highlight-fg">
               {videoResult.warning}
             </p>
           )}
@@ -481,33 +487,30 @@ export function PostForm({
               />
             </label>
           )}
-          <label className={labelClass}>
-            Capa (imagem)
-            <input
-              type="file"
-              accept={IMAGE_INPUT_TYPES.join(",")}
-              onChange={chooseCover}
-              disabled={locked}
-              className={fileInputClass}
-            />
-          </label>
+          <Dropzone
+            label="Capa (imagem)"
+            hint="JPG, PNG ou WebP. Também dá pra escolher um quadro do vídeo acima."
+            accept={IMAGE_INPUT_TYPES.join(",")}
+            onFiles={chooseCover}
+            disabled={locked}
+            compact
+          />
           {cover && <SlotRow slot={cover} />}
         </>
       ) : (
         <>
-          <label className={labelClass}>
-            {type === "post"
-              ? "Imagem"
-              : `Imagens (${CAROUSEL_MIN_IMAGES} a ${CAROUSEL_MAX_IMAGES}, na ordem do carrossel)`}
-            <input
-              type="file"
-              accept={IMAGE_INPUT_TYPES.join(",")}
-              multiple={type === "carousel"}
-              onChange={addImages}
-              disabled={busy}
-              className={fileInputClass}
-            />
-          </label>
+          <Dropzone
+            label={
+              type === "post"
+                ? "Imagem"
+                : `Imagens (${CAROUSEL_MIN_IMAGES} a ${CAROUSEL_MAX_IMAGES}, na ordem do carrossel)`
+            }
+            hint="JPG, PNG ou WebP. Sai em JPEG com até 1080 px de largura."
+            accept={IMAGE_INPUT_TYPES.join(",")}
+            multiple={type === "carousel"}
+            onFiles={addImages}
+            disabled={busy}
+          />
           {images.length > 0 && (
             <ol className="space-y-2">
               {images.map((slot, index) => (
@@ -520,27 +523,27 @@ export function PostForm({
                           onClick={() => move(index, -1)}
                           disabled={busy || index === 0}
                           aria-label={`Subir a imagem ${index + 1}`}
-                          className={secondaryButtonClass}
+                          className={iconButtonClass}
                         >
-                          ↑
+                          <ChevronUp size={18} aria-hidden="true" />
                         </button>
                         <button
                           type="button"
                           onClick={() => move(index, 1)}
                           disabled={busy || index === images.length - 1}
                           aria-label={`Descer a imagem ${index + 1}`}
-                          className={secondaryButtonClass}
+                          className={iconButtonClass}
                         >
-                          ↓
+                          <ChevronDown size={18} aria-hidden="true" />
                         </button>
                         <button
                           type="button"
                           onClick={() => remove(slot.key)}
                           disabled={busy}
                           aria-label={`Remover a imagem ${index + 1}`}
-                          className={secondaryButtonClass}
+                          className={iconButtonClass}
                         >
-                          Remover
+                          <X size={18} aria-hidden="true" />
                         </button>
                       </>
                     )}
@@ -563,7 +566,7 @@ export function PostForm({
           placeholder="Texto do post, com as hashtags no final."
           className={inputClass}
         />
-        <span className="mt-1 block text-right text-[12px] font-normal text-muted tabular-nums">
+        <span className="mt-1 block text-right text-[12px] font-normal text-fg-muted tabular-nums">
           {caption.length}/{CAPTION_MAX_LENGTH}
         </span>
       </label>
@@ -573,7 +576,7 @@ export function PostForm({
           {error}
         </p>
       )}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 border-t border-border pt-4">
         <button type="submit" disabled={locked} className={primaryButtonClass}>
           {busy ? "Enviando…" : post ? "Salvar post" : "Adicionar"}
         </button>
@@ -602,20 +605,24 @@ function SlotRow({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1">
+    <div className="admin-list-in space-y-1.5 rounded-lg border border-border p-2">
       <div className="flex items-center gap-3">
         {number !== undefined && (
-          <span className="w-4 text-[13px] text-muted tabular-nums">{number}</span>
+          <span className="w-5 text-center text-[13px] font-semibold tabular-nums">{number}</span>
         )}
-        <span className="block h-14 w-11 shrink-0 overflow-hidden rounded border border-line bg-surface">
-          {slot.previewUrl && (
+        <span className="flex h-14 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-bg-subtle text-fg-muted">
+          {slot.previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- prévia local ou URL assinada
             <img src={slot.previewUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            slot.role === "video" && <Film size={18} aria-hidden="true" />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px]">
-          {slot.name}
-          {detail && <span className="text-muted"> · {detail}</span>}
+        <span className="min-w-0 flex-1 text-[13px]">
+          <span className="block truncate font-semibold">{slot.name}</span>
+          <span className="block truncate text-fg-muted">
+            {detail ?? (slot.file ? megabytes(slot.file.size) : "Já enviado")}
+          </span>
         </span>
         {children}
       </div>

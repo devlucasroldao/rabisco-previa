@@ -1,3 +1,4 @@
+import { CreatorCredit } from "@/components/creator-credit";
 import { CarouselIcon, CloseIcon, GridIcon, ReelsIcon } from "@/components/icons";
 import { postThumbnail, postTypeLabel } from "@/lib/post";
 import { avatarLabel, contentCounter } from "@/lib/stories";
@@ -145,6 +146,7 @@ export function ProfileGrid({
           Toque num conteúdo para ver em tela cheia. Pra pedir ajuste, mande no
           WhatsApp o número do post.
         </p>
+        <CreatorCredit className="mt-2" />
         <p className="mt-3 text-[11px]">Prévia preparada pela Rabisco</p>
         {posts.some((post) => post.type === "reels") && (
           <p className="mt-1 text-[11px]">

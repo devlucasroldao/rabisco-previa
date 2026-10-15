@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* Tokens do painel, todos dentro de .admin: a tela do cliente não muda. */
+@import "./admin/theme.css";
+/* Tokens das páginas públicas (início, erro, "não existe"), dentro de .public-page. */
+@import "./public-theme.css";
 
 :root {
   color-scheme: light dark;

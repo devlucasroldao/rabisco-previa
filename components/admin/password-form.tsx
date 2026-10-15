@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { toast } from "sonner";
 import { changePassword, type PasswordState } from "@/app/admin/actions";
 import { PASSWORD_MIN_LENGTH } from "@/lib/presentation-rules";
 import { errorClass, inputClass, labelClass, primaryButtonClass } from "./ui";
@@ -8,10 +9,17 @@ import { errorClass, inputClass, labelClass, primaryButtonClass } from "./ui";
 const initialState: PasswordState = {};
 
 export function PasswordForm() {
-  const [state, action, pending] = useActionState(changePassword, initialState);
+  const [state, action, pending] = useActionState(
+    async (previous: PasswordState, form: FormData) => {
+      const result = await changePassword(previous, form);
+      if (result.saved) toast.success("Senha trocada. Use a nova no próximo login.");
+      return result;
+    },
+    initialState,
+  );
 
   return (
-    <form action={action} className="max-w-[420px] space-y-4">
+    <form action={action} className="space-y-4">
       <label className={labelClass}>
         Senha atual
         <input
@@ -32,7 +40,7 @@ export function PasswordForm() {
           minLength={PASSWORD_MIN_LENGTH}
           className={inputClass}
         />
-        <span className="mt-1 block text-[12px] font-normal text-muted">
+        <span className="mt-1 block text-[12px] font-normal text-fg-muted">
           Pelo menos {PASSWORD_MIN_LENGTH} caracteres.
         </span>
       </label>
@@ -50,11 +58,6 @@ export function PasswordForm() {
       {state.error && (
         <p role="alert" className={errorClass}>
           {state.error}
-        </p>
-      )}
-      {state.saved && !pending && (
-        <p role="status" className="text-[13px]">
-          Senha trocada. Use a nova no próximo login.
         </p>
       )}
       <button type="submit" disabled={pending} className={primaryButtonClass}>

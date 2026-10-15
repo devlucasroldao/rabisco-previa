@@ -2,16 +2,27 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { saveClient, setClientAvatar } from "@/app/admin/actions";
 import type { AdminClient } from "@/lib/admin-data";
 import { resizeAvatar } from "@/lib/image";
 import { avatarPath, IMAGE_INPUT_TYPES, IMAGE_OUTPUT_TYPE } from "@/lib/media";
 import { uploadToBucket } from "@/lib/upload";
 import { Avatar } from "./avatar";
+import { Dropzone } from "./primitives/dropzone";
 import { ProgressBar } from "./progress-bar";
 import { errorClass, inputClass, labelClass, primaryButtonClass } from "./ui";
 
-export function ClientForm({ client }: { client?: AdminClient }) {
+const hintClass = "mt-1 block text-[12px] font-normal text-fg-muted";
+
+export function ClientForm({
+  client,
+  onSaved,
+}: {
+  client?: AdminClient;
+  // Editando no painel lateral: fecha o painel depois de salvar.
+  onSaved?: () => void;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -20,9 +31,8 @@ export function ClientForm({ client }: { client?: AdminClient }) {
   const [avatar, setAvatar] = useState<{ blob: Blob; url: string } | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
 
-  async function onAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
+  async function onAvatarChange(files: File[]) {
+    const file = files[0];
     setError(null);
     setSaved(false);
     if (!file) {
@@ -33,7 +43,6 @@ export function ClientForm({ client }: { client?: AdminClient }) {
       const blob = await resizeAvatar(file);
       setAvatar({ blob, url: URL.createObjectURL(blob) });
     } catch (cause) {
-      input.value = "";
       setAvatar(null);
       setError(cause instanceof Error ? cause.message : "Não deu pra ler a foto.");
     }
@@ -76,13 +85,18 @@ export function ClientForm({ client }: { client?: AdminClient }) {
         setProgress(null);
       }
 
-      if (client) setSaved(true);
-      else router.push(`/admin/clientes/${result.id}`);
+      if (client) {
+        setSaved(true);
+        toast.success("Cliente salvo.");
+        onSaved?.();
+      } else {
+        router.push(`/admin/clientes/${result.id}`);
+      }
     });
   }
 
   return (
-    <form onSubmit={onSubmit} className="max-w-[520px] space-y-4">
+    <form onSubmit={onSubmit} className="max-w-[520px] space-y-5">
       <label className={labelClass}>
         Nome
         <input
@@ -90,9 +104,10 @@ export function ClientForm({ client }: { client?: AdminClient }) {
           required
           maxLength={80}
           defaultValue={client?.name}
-          placeholder="Conecte Telecom"
+          placeholder="ex.: Conecte Telecom"
           className={inputClass}
         />
+        <span className={hintClass}>Como aparece no perfil, embaixo do @.</span>
       </label>
       <label className={labelClass}>
         @ do Instagram (sem o @)
@@ -101,7 +116,7 @@ export function ClientForm({ client }: { client?: AdminClient }) {
           required
           maxLength={30}
           defaultValue={client?.handle}
-          placeholder="seconecte2021"
+          placeholder="ex.: seconecte2021"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
@@ -115,27 +130,31 @@ export function ClientForm({ client }: { client?: AdminClient }) {
           rows={4}
           maxLength={300}
           defaultValue={client?.bio}
+          placeholder="ex.: Fibra óptica em Arroio do Sal e região"
           className={inputClass}
         />
+        <span className={hintClass}>Até 300 caracteres. As quebras de linha aparecem pro cliente.</span>
       </label>
-      <div className="flex items-center gap-4">
-        <Avatar url={avatar?.url ?? client?.avatarUrl} size={72} />
-        <label className={`flex-1 ${labelClass}`}>
-          Foto do perfil
-          <input
-            name="avatar"
-            type="file"
-            accept={IMAGE_INPUT_TYPES.join(",")}
-            onChange={onAvatarChange}
-            disabled={pending}
-            className="mt-1 block w-full text-[13px] text-muted file:mr-3 file:rounded-md file:border file:border-line file:bg-background file:px-3 file:py-1.5 file:text-[13px] file:font-medium file:text-foreground"
-          />
-          <span className="mt-1 block text-[12px] font-normal text-muted">
-            {avatar
-              ? "Prévia da foto nova. Ela só vale depois de salvar."
-              : "JPG, PNG ou WebP. É recortada no centro, em quadrado."}
-          </span>
-        </label>
+      <div>
+        <span className={labelClass}>Foto do perfil</span>
+        <div className="mt-1.5 flex items-center gap-4">
+          <Avatar url={avatar?.url ?? client?.avatarUrl} size={72} />
+          <div className="flex-1">
+            <Dropzone
+              label="Foto do perfil"
+              hint="JPG, PNG ou WebP. É recortada no centro, em quadrado."
+              accept={IMAGE_INPUT_TYPES.join(",")}
+              onFiles={(files) => void onAvatarChange(files)}
+              disabled={pending}
+              compact
+            />
+          </div>
+        </div>
+        {avatar && (
+          <p className="mt-1.5 text-[12px] text-fg-muted">
+            Prévia da foto nova. Ela só vale depois de salvar.
+          </p>
+        )}
       </div>
       {progress !== null && <ProgressBar value={progress} label="Enviando a foto" />}
       {error && (
@@ -148,7 +167,7 @@ export function ClientForm({ client }: { client?: AdminClient }) {
           {pending ? "Salvando…" : client ? "Salvar" : "Criar cliente"}
         </button>
         {saved && !pending && (
-          <p role="status" className="text-[13px] text-muted">
+          <p role="status" className="text-[13px] text-fg-muted">
             Salvo.
           </p>
         )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Carousel } from "@/components/carousel";
+import { CreatorCredit } from "@/components/creator-credit";
 import { ChevronIcon } from "@/components/icons";
 import { postTypeLabel, splitCaption } from "@/lib/post";
 import type { Client, Post } from "@/lib/types";
@@ -138,6 +139,10 @@ export function PostViewer({
               </button>
             </div>
           )}
+
+          {/* No fim da página, abaixo de Anterior/Próximo e fora do vídeo
+              (inclusive no Reels único, que abre direto aqui). */}
+          <CreatorCredit className="mt-4 text-muted" />
         </div>
       </div>
     </div>
