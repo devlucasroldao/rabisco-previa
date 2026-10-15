@@ -1,52 +1,63 @@
 import { bodyFont, displayFont } from "@/app/fonts";
 import { CreatorCredit } from "@/components/creator-credit";
 
-// Página pública com a marca (início, link inexistente, not-found, erro). Usa
-// os tokens de app/public-theme.css e segue o tema do aparelho.
+// Página pública com a marca (início, link inexistente, not-found, erro), no
+// fundo terracota de app/public-theme.css. Sobre o terracota só vai texto
+// grande; o texto pequeno (a assinatura) fica na faixa inferior.
 export function PublicPage({
   title,
   children,
   action,
+  aside,
 }: {
   title: string;
+  // Texto de apoio, sempre em tamanho grande (24 px).
   children?: React.ReactNode;
   action?: React.ReactNode;
+  // Coluna da direita no desktop (o mockup da página inicial).
+  aside?: React.ReactNode;
 }) {
   return (
-    <div className={`public-page flex min-h-dvh flex-col ${bodyFont.variable} ${displayFont.variable}`}>
-      {/* Filete mostarda no topo: o ornamento de marca recorrente. */}
-      <span aria-hidden="true" className="h-0.5 bg-pub-dot" />
-      <main className="mx-auto flex w-full max-w-[440px] flex-1 flex-col items-center justify-center px-6 py-12 text-center">
-        <picture>
-          {/* No escuro, o wordmark creme num bloco terracota. */}
-          <source
-            media="(prefers-color-scheme: dark)"
-            srcSet="/brand/web/wordmark-bloco-160.png 1x, /brand/web/wordmark-bloco-320.png 2x"
-            width={160}
-            height={62}
-          />
-          <img
-            src="/brand/web/wordmark-terracota-160.png"
-            srcSet="/brand/web/wordmark-terracota-160.png 1x, /brand/web/wordmark-terracota-320.png 2x"
-            alt="Rabisco"
-            width={160}
-            height={48}
-            className="h-auto w-[140px] rounded-lg"
-          />
-        </picture>
-        <h1 className="mt-10 text-[24px] leading-tight font-semibold text-balance">
-          {title}
-          <span aria-hidden="true" className="text-pub-dot">
-            .
-          </span>
-        </h1>
-        {children && (
-          <div className="mt-3 text-[15px] leading-[1.5] text-pub-muted text-balance">{children}</div>
-        )}
-        {action && <div className="mt-6">{action}</div>}
+    <div
+      className={`public-page flex min-h-dvh flex-col overflow-x-hidden ${bodyFont.variable} ${displayFont.variable}`}
+    >
+      <main className="flex flex-1 items-center">
+        <div
+          className={`mx-auto grid w-full max-w-[1120px] items-center gap-10 px-6 pt-12 pb-10 md:px-10 md:py-16 ${
+            aside ? "md:grid-cols-[minmax(0,1fr)_auto] md:gap-16" : "max-w-[640px] justify-items-center text-center"
+          }`}
+        >
+          <div className="min-w-0">
+            {/* O fundo do PNG é exatamente --pub-bg: não aparece retângulo. */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- arquivo estático da marca, 1x e 2x */}
+            <img
+              src="/brand/web/wordmark-publico-240.png"
+              srcSet="/brand/web/wordmark-publico-240.png 1x, /brand/web/wordmark-publico-480.png 2x"
+              alt="Rabisco"
+              width={240}
+              height={77}
+              className={`h-auto w-[176px] md:w-[220px] ${aside ? "-ml-[12px] md:-ml-[15px]" : "mx-auto"}`}
+            />
+            <h1
+              className={`mt-8 font-semibold text-balance ${
+                aside ? "text-[40px] leading-[1.05] md:text-[56px]" : "text-[32px] leading-[1.1] md:text-[44px]"
+              }`}
+            >
+              {title}
+              <span aria-hidden="true" className="text-pub-dot">
+                .
+              </span>
+            </h1>
+            {children && (
+              <div className="mt-5 space-y-3 text-[24px] leading-[1.3] text-balance">{children}</div>
+            )}
+            {action && <div className="mt-8">{action}</div>}
+          </div>
+          {aside}
+        </div>
       </main>
-      <footer className="pb-[max(16px,env(safe-area-inset-bottom))] text-pub-muted">
-        <CreatorCredit />
+      <footer className="border-t-2 border-pub-dot bg-pub-band pb-[max(4px,env(safe-area-inset-bottom))] text-pub-band-text">
+        <CreatorCredit className="py-1" />
       </footer>
     </div>
   );

@@ -21,6 +21,8 @@ type Job = {
   padding: number;
   // Quadrado (monograma e ícones) ou proporção livre (wordmark).
   square: boolean;
+  // Sem paleta: o fundo sai com a cor exata, pra sumir num fundo da mesma cor.
+  exact?: boolean;
   outputs: { name: string; width: number }[];
 };
 
@@ -50,6 +52,19 @@ const jobs: Job[] = [
     outputs: [
       { name: "wordmark-creme-240.png", width: 240 },
       { name: "wordmark-creme-480.png", width: 480 },
+    ],
+  },
+  {
+    // Wordmark das páginas públicas (fundo terracota #C65D3B): o fundo do PNG
+    // é exatamente a cor da página, então não aparece retângulo.
+    source: "wordmark-creme-sobre-terracota.png",
+    background: TERRACOTA,
+    padding: 0.08,
+    square: false,
+    exact: true,
+    outputs: [
+      { name: "wordmark-publico-240.png", width: 240 },
+      { name: "wordmark-publico-480.png", width: 480 },
     ],
   },
   {
@@ -101,7 +116,7 @@ async function main() {
       const file = path.join(OUT, output.name);
       await sharp(base)
         .resize({ width: output.width })
-        .png({ compressionLevel: 9, palette: true, quality: 90 })
+        .png(job.exact ? { compressionLevel: 9 } : { compressionLevel: 9, palette: true, quality: 90 })
         .toFile(file);
       const { width: w, height: h } = await sharp(file).metadata();
       console.log(`${output.name.padEnd(28)} ${w}×${h}  ${(statSync(file).size / 1024).toFixed(1)} KB`);

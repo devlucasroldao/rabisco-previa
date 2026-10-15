@@ -17,11 +17,12 @@
 
 import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { chromium, type Browser, type Locator, type Page } from "playwright-core";
+import sharp from "sharp";
 import { megabytes } from "../lib/media";
 import { batchConfirmation } from "../lib/storage-rules";
 import { newToken } from "../lib/token";
@@ -488,7 +489,58 @@ async function main() {
     const page = await context.newPage();
     page.setDefaultTimeout(30_000);
     panel = page;
-    console.log("Sem sessão");
+    console.log("Página inicial");
+    await step("/ com a marca em 1280 e 375 px, nos dois temas: capturas, assinatura e logo sem borda", async () => {
+      // Capturas pra conferir a olho; a pasta fica fora do git.
+      const shots = path.join(process.cwd(), "e2e-capturas");
+      mkdirSync(shots, { recursive: true });
+      for (const colorScheme of ["light", "dark"] as const) {
+        for (const width of [1280, 375]) {
+          const visitor = await browser.newContext({
+            viewport: { width, height: width === 375 ? 812 : 860 },
+            colorScheme,
+          });
+          try {
+            const view = await visitor.newPage();
+            await view.goto(`${BASE_URL}/`, { waitUntil: "networkidle" });
+            await view.getByRole("heading", { name: /^Boas-vindas à Rabisco Prévia/ }).waitFor();
+            await view.getByText("Veja como seus posts vão ficar antes de publicar.").waitFor();
+            equal(await view.title(), "Rabisco Prévia", "título da aba");
+            const robots = await view.locator('meta[name="robots"]').getAttribute("content");
+            assert(robots?.includes("noindex") && robots.includes("nofollow"), `meta robots: ${robots}`);
+            await checkCredit(view.getByRole("contentinfo"), `início ${width} px ${colorScheme}`);
+            const overflow = await view.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+            assert(overflow <= 0, `rolagem horizontal de ${overflow} px em ${width} px`);
+
+            // Logo sem retângulo: em volta dele e na borda da imagem, só o
+            // terracota exato do fundo (198, 93, 59).
+            const box = (await view.getByRole("img", { name: "Rabisco" }).boundingBox())!;
+            const pad = 6;
+            const clip = await view.screenshot({
+              clip: { x: box.x - pad, y: box.y - pad, width: box.width + pad * 2, height: box.height + pad * 2 },
+            });
+            const { data, info } = await sharp(clip).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+            let off = 0;
+            for (let y = 0; y < info.height; y++) {
+              for (let x = 0; x < info.width; x++) {
+                const border = x < pad + 2 || y < pad + 2 || x >= info.width - pad - 2 || y >= info.height - pad - 2;
+                if (!border) continue;
+                const i = (y * info.width + x) * 3;
+                if (data[i] !== 198 || data[i + 1] !== 93 || data[i + 2] !== 59) off++;
+              }
+            }
+            equal(off, 0, `pixels fora do terracota em volta do logo (${width} px ${colorScheme})`);
+
+            await view.screenshot({ path: path.join(shots, `inicio-${width}-${colorScheme}.png`), fullPage: true });
+          } finally {
+            await visitor.close();
+          }
+        }
+      }
+      console.log(`          capturas em ${shots}`);
+    });
+
+    console.log("\nSem sessão");
     await step("/admin sem sessão redireciona para o login", async () => {
       const response = await fetch(`${BASE_URL}/admin`, { redirect: "manual" });
       equal(response.status, 307, "status");
