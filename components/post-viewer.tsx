@@ -140,8 +140,9 @@ export function PostViewer({
             </div>
           )}
 
-          {/* Fica fora do Reels, que é o vídeo sobreposto em tela cheia. */}
-          {post.type !== "reels" && <CreatorCredit className="mt-4 text-muted" />}
+          {/* No fim da página, abaixo de Anterior/Próximo e fora do vídeo
+              (inclusive no Reels único, que abre direto aqui). */}
+          <CreatorCredit className="mt-4 text-muted" />
         </div>
       </div>
     </div>

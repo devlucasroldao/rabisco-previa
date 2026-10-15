@@ -708,6 +708,7 @@ async function main() {
 
         await view.goto(`${BASE_URL}/p/${token}?post=3`);
         await view.getByText("Post 3 de 3").waitFor();
+        await checkCredit(view.getByRole("dialog"), "visualizador de Reels");
       } finally {
         await visitor.close();
       }
@@ -1267,6 +1268,12 @@ async function main() {
         const adjust = view.getByText(/Quer ajustar algo\?/);
         const below = (await note.boundingBox())!.y > (await adjust.boundingBox())!.y;
         assert(below, "o aviso não ficou abaixo do texto de ajuste");
+
+        // A assinatura também aparece no Reels único: no fim, fora do vídeo.
+        await checkCredit(view.getByRole("main"), "Reels único");
+        const video = (await view.locator("video").boundingBox())!;
+        const credit = (await view.getByRole("link", { name: "Lucas Roldão" }).boundingBox())!;
+        assert(credit.y >= video.y + video.height, "a assinatura ficou sobre o vídeo");
       } finally {
         await visitor.close();
       }
