@@ -21,7 +21,7 @@ export default function PresentationError({
         <button
           type="button"
           onClick={() => retry()}
-          className="min-h-11 cursor-pointer rounded-md px-4 font-semibold text-pub-link hover:underline"
+          className="min-h-11 cursor-pointer rounded-md bg-pub-button-bg px-5 text-[16px] font-semibold text-pub-button-text hover:opacity-90"
         >
           Tentar de novo
         </button>

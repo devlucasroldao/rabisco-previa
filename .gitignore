@@ -157,3 +157,6 @@ next-env.d.ts
 
 # Vercel
 .vercel
+
+# Capturas do teste de ponta a ponta
+e2e-capturas/

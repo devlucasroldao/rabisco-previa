@@ -103,10 +103,15 @@ const devicePairs: [string, Record<string, Record<string, string>>, [string, str
     "público",
     deviceThemes("app/public-theme.css", ".public-page"),
     [
-      ["pub-text", "pub-bg", 4.5, "título e texto"],
-      ["pub-muted", "pub-bg", 4.5, "apoio e assinatura"],
-      ["pub-link", "pub-bg", 4.5, "botão Tentar de novo"],
-      ["pub-ring", "pub-bg", 3, "anel de foco"],
+      // Sobre o terracota puro só entra texto grande (título e apoio em 24 px).
+      ["pub-text", "pub-bg", 3, "título e apoio (texto grande)"],
+      ["pub-band-text", "pub-band", 4.5, "assinatura na faixa inferior"],
+      ["pub-button-text", "pub-button-bg", 4.5, "botão Tentar de novo"],
+      ["pub-ring", "pub-bg", 3, "anel de foco no terracota"],
+      ["pub-ring", "pub-band", 3, "anel de foco na faixa"],
+      ["pub-dot", "pub-band", 0, "filete mostarda (decorativo)"],
+      ["pub-dot", "pub-bg", 0, "ponto do título (decorativo)"],
+      ["mock-text", "mock-screen", 0, "mockup (decorativo, aria-hidden)"],
     ],
   ],
   [
@@ -122,8 +127,9 @@ for (const [scope, scopeThemes, list] of devicePairs) {
       const value = ratio(tokens[fg], tokens[bg]);
       const ok = value >= min;
       if (!ok) failures++;
+      const verdict = min === 0 ? "info" : ok ? "aprovado" : "FALHOU";
       console.log(
-        `${`${scope} ${theme}`.padEnd(15)} ${`--${fg} / --${bg}`.padEnd(26)} ${value.toFixed(2).padStart(5)}  ${String(min).padStart(3)}   ${(ok ? "aprovado" : "FALHOU").padEnd(10)}  ${use}`,
+        `${`${scope} ${theme}`.padEnd(15)} ${`--${fg} / --${bg}`.padEnd(30)} ${value.toFixed(2).padStart(5)}  ${min ? String(min).padStart(3) : "  -"}   ${verdict.padEnd(10)}  ${use}`,
       );
     }
   }
