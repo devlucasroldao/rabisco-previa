@@ -256,9 +256,24 @@ html:has(.admin dialog[open]:modal) {
  * allow-discrete mantém o dialog visível até a saída terminar. Navegador sem
  * suporte só abre e fecha sem animação.
  */
+/*
+ * Centro: quem centraliza o <dialog> modal é o margin: auto do navegador
+ * (com inset: 0), mas o preflight do Tailwind zera a margem de todo elemento
+ * (* { margin: 0 }) e o dialog ia pro canto superior esquerdo. A margem volta
+ * aqui; o respiro de 16 px vem da largura e da altura máximas, e o conteúdo
+ * alto rola dentro do dialog. A gaveta e o painel lateral definem a própria
+ * margem (m-0 / ml-auto) e não passam por esta regra.
+ */
 .admin-dialog {
+  margin: auto;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  /* Entra e sai crescendo a partir do centro. */
+  transform: scale(0.96);
+  transform-origin: center;
   transition:
     opacity var(--dur-base) var(--ease),
     transform var(--dur-base) var(--ease),
@@ -272,7 +287,7 @@ html:has(.admin dialog[open]:modal) {
 @starting-style {
   .admin-dialog[open] {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: scale(0.96);
   }
 }
 

@@ -217,6 +217,28 @@ async function menuItem(page: Page, menu: string, item: string) {
   await page.getByRole("menuitem", { name: item, exact: true }).click();
 }
 
+// O dialog de confirmação abre no centro da janela (o preflight do Tailwind
+// já o mandou pro canto superior esquerdo uma vez).
+const CENTER_TOLERANCE_PX = 8;
+
+async function checkDialogCentered(page: Page, where: string) {
+  // Espera a animação de entrada terminar antes de medir.
+  await page.waitForTimeout(400);
+  const { dx, dy, box } = await page.evaluate(() => {
+    const dialog = [...document.querySelectorAll("dialog")].find((item) => item.open)!;
+    const rect = dialog.getBoundingClientRect();
+    return {
+      dx: rect.x + rect.width / 2 - window.innerWidth / 2,
+      dy: rect.y + rect.height / 2 - window.innerHeight / 2,
+      box: `${Math.round(rect.x)},${Math.round(rect.y)} ${Math.round(rect.width)}x${Math.round(rect.height)} em ${window.innerWidth}x${window.innerHeight}`,
+    };
+  });
+  assert(
+    Math.abs(dx) <= CENTER_TOLERANCE_PX && Math.abs(dy) <= CENTER_TOLERANCE_PX,
+    `dialog fora do centro (${where}): ${box}, desvio ${Math.round(dx)}, ${Math.round(dy)}`,
+  );
+}
+
 // Confirmação destrutiva: o dialog com o texto e o botão em vermelho.
 async function confirmDialog(page: Page, button: string, text?: string) {
   const dialog = page.getByRole("dialog").filter({ has: page.getByRole("button", { name: button, exact: true }) });
@@ -746,6 +768,11 @@ async function main() {
 
     await step("exclui o post 2 com o aviso combinado, apaga os arquivos e não renumera", async () => {
       await menuItem(page, "Ações do post 2", "Excluir");
+      await checkDialogCentered(page, "1280 px");
+      // Mesmo dialog aberto numa janela de celular.
+      await page.setViewportSize({ width: 375, height: 812 });
+      await checkDialogCentered(page, "375 px");
+      await page.setViewportSize({ width: 1280, height: 900 });
       await timeDeletion(
         page,
         "post",
