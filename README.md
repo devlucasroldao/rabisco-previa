@@ -15,12 +15,10 @@
   <img src="docs/screenshots/reels.png" alt="Visualizador de um Reels" width="240">
 </p>
 
-<!-- Capturas do painel: voltam quando forem refeitas sem e-mail na tela.
 <p align="center">
-  <img src="docs/screenshots/painel-apresentacao.png" alt="Painel: montagem da apresentação, tema claro" width="49%">
-  <img src="docs/screenshots/painel-escuro.png" alt="Painel: montagem da apresentação, tema escuro" width="49%">
+  <img src="docs/screenshots/painel-apresentacao.png" alt="Painel: montagem de uma apresentação, com posts e stories, tema claro" width="49%">
+  <img src="docs/screenshots/painel-escuro.png" alt="Painel: montagem de uma apresentação, com posts e stories, tema escuro" width="49%">
 </p>
--->
 
 <details>
 <summary>Mais telas</summary>
