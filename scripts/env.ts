@@ -11,7 +11,7 @@ export function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
     console.error(
-      `Falta ${name}. Defina no .env.local com os dados do Supabase (a lista de variáveis está no README).`,
+      `Falta ${name}. Defina no .env.local com os dados do Supabase (a lista de variáveis está em docs/GUIA-TECNICO.md).`,
     );
     process.exit(1);
   }
