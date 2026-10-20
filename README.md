@@ -10,6 +10,10 @@
 [![Vercel](https://img.shields.io/badge/Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://vercel.com)
 
 <p align="center">
+  <img src="docs/demo.gif" alt="Demo em 25 segundos: antes, o conteúdo ia num .zip pelo WhatsApp e o ajuste não dizia de qual post era; agora, um link por semana com cara de perfil, posts numerados e o ajuste citando o número do post" width="720">
+</p>
+
+<p align="center">
   <img src="docs/screenshots/grid.png" alt="Perfil com o grid dos próximos posts numerados" width="240">
   <img src="docs/screenshots/post.png" alt="Visualizador de um carrossel com a legenda" width="240">
   <img src="docs/screenshots/reels.png" alt="Visualizador de um Reels" width="240">
