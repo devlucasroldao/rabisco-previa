@@ -1,21 +1,39 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ChevronIcon } from "@/components/icons";
 import type { Media } from "@/lib/types";
 
 const SWIPE_THRESHOLD = 40;
 
+/** Fallback enquanto a primeira imagem ainda não carregou. */
+const DEFAULT_RATIO = 4 / 5;
+
 export function Carousel({ media, alt }: { media: Media[]; alt: string }) {
   const [index, setIndex] = useState(0);
   const [drag, setDrag] = useState<number | null>(null);
+  const [ratio, setRatio] = useState(DEFAULT_RATIO);
   const startX = useRef<number | null>(null);
+  const ratioDetected = useRef(false);
 
   const last = media.length - 1;
 
   function goTo(next: number) {
     setIndex(Math.min(last, Math.max(0, next)));
   }
+
+  // Detecta o aspect ratio real a partir da primeira imagem carregada.
+  const handleFirstLoad = useCallback(
+    (e: React.SyntheticEvent<HTMLImageElement>) => {
+      if (ratioDetected.current) return;
+      const img = e.currentTarget;
+      if (img.naturalWidth && img.naturalHeight) {
+        ratioDetected.current = true;
+        setRatio(img.naturalWidth / img.naturalHeight);
+      }
+    },
+    [],
+  );
 
   function onTouchStart(event: React.TouchEvent) {
     if (event.touches.length !== 1) return;
@@ -51,7 +69,8 @@ export function Carousel({ media, alt }: { media: Media[]; alt: string }) {
         role="group"
         aria-roledescription="carrossel"
         aria-label={alt}
-        className="relative aspect-[4/5] touch-pan-y overflow-hidden bg-surface"
+        className="relative touch-pan-y overflow-hidden bg-surface"
+        style={{ aspectRatio: ratio }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -74,6 +93,7 @@ export function Carousel({ media, alt }: { media: Media[]; alt: string }) {
               draggable={false}
               loading={i === 0 ? "eager" : "lazy"}
               decoding="async"
+              onLoad={i === 0 ? handleFirstLoad : undefined}
               className="size-full shrink-0 object-cover select-none"
             />
           ))}

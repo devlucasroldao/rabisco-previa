@@ -181,7 +181,7 @@ function PostMedia({ post, alt }: { post: Post; alt: string }) {
       src={first.url}
       alt={alt}
       decoding="async"
-      className="aspect-[4/5] w-full bg-surface object-cover"
+      className="w-full bg-surface"
     />
   );
 }
