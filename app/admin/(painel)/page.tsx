@@ -7,7 +7,12 @@ import { EmptyState } from "@/components/admin/primitives/empty-state";
 import { PageHeader } from "@/components/admin/primitives/page-header";
 import { ListSkeleton } from "@/components/admin/primitives/skeleton";
 import { buttonClass } from "@/components/admin/ui";
+import {
+  countCalendarsByClient,
+  listRecentCalendars,
+} from "@/lib/admin-calendar-data";
 import { listRecentPresentations } from "@/lib/admin-data";
+import { formatMonthShort } from "@/lib/calendar-constants";
 import { shellClients, shellStorage } from "@/lib/admin-shell";
 import { ageLabel, meterShortLabel } from "@/lib/storage-rules";
 
@@ -34,11 +39,14 @@ function HomeSkeleton() {
 }
 
 async function Home() {
-  const [clients, presentations, bytes] = await Promise.all([
-    shellClients(),
-    listRecentPresentations(RECENT),
-    shellStorage(),
-  ]);
+  const [clients, presentations, calendars, calendarCounts, bytes] =
+    await Promise.all([
+      shellClients(),
+      listRecentPresentations(RECENT),
+      listRecentCalendars(RECENT),
+      countCalendarsByClient(),
+      shellStorage(),
+    ]);
 
   if (clients.length === 0) {
     return (
@@ -80,9 +88,18 @@ async function Home() {
                   <span className="block truncate text-[14px] font-semibold">{client.name}</span>
                   <span className="block truncate text-[13px] text-fg-muted">@{client.handle}</span>
                 </span>
-                <span className="text-[13px] text-fg-muted">
+                <span className="text-right text-[13px] text-fg-muted">
                   {client.presentationCount}{" "}
                   {client.presentationCount === 1 ? "apresentação" : "apresentações"}
+                  {(calendarCounts.get(client.id) ?? 0) > 0 && (
+                    <>
+                      {" · "}
+                      {calendarCounts.get(client.id)}{" "}
+                      {calendarCounts.get(client.id) === 1
+                        ? "calendário"
+                        : "calendários"}
+                    </>
+                  )}
                 </span>
               </Link>
             </li>
@@ -116,6 +133,42 @@ async function Home() {
                   </span>
                   <Badge tone={presentation.active ? "success" : "danger"}>
                     {presentation.active ? "Link ativo" : "Link desativado"}
+                  </Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="calendarios-recentes">
+        <h2 id="calendarios-recentes" className="mb-3 text-[18px] font-semibold">
+          Calendários recentes
+        </h2>
+        {calendars.length === 0 ? (
+          <EmptyState title="Nenhum calendário ainda">
+            Abra um cliente e monte o planejamento de conteúdo do mês.
+          </EmptyState>
+        ) : (
+          <ul className="divide-y divide-border border-y border-border">
+            {calendars.map((calendar) => (
+              <li key={calendar.id} className="admin-list-in">
+                <Link
+                  href={`/admin/calendarios/${calendar.id}`}
+                  className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--dur-fast) hover:bg-hover"
+                >
+                  <span className="min-w-0 flex-1 basis-56">
+                    <span className="block truncate text-[14px] font-semibold">
+                      {calendar.title}
+                    </span>
+                    <span className="block truncate text-[13px] text-fg-muted">
+                      {calendar.clientName} · {calendar.itemCount}{" "}
+                      {calendar.itemCount === 1 ? "item" : "itens"} ·{" "}
+                      {formatMonthShort(calendar.month)}
+                    </span>
+                  </span>
+                  <Badge tone={calendar.active ? "success" : "danger"}>
+                    {calendar.active ? "Link ativo" : "Link desativado"}
                   </Badge>
                 </Link>
               </li>

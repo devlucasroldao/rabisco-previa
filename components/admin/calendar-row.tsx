@@ -7,18 +7,10 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { deleteCalendar, setCalendarActive } from "@/app/admin/actions";
 import type { AdminCalendar } from "@/lib/admin-calendar-data";
+import { formatMonthShort } from "@/lib/calendar-constants";
 import { ActionMenu } from "./primitives/action-menu";
 import { Badge } from "./primitives/badge";
 import { ConfirmDialog } from "./primitives/confirm-dialog";
-
-function formatMonth(dateStr: string): string {
-  const [year, month] = dateStr.split("-").map(Number);
-  const months = [
-    "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-    "Jul", "Ago", "Set", "Out", "Nov", "Dez",
-  ];
-  return `${months[month - 1]} ${year}`;
-}
 
 function calendarUrl(token: string): string {
   return `${window.location.origin}/c/${token}`;
@@ -87,7 +79,7 @@ export function CalendarRow({ calendar }: { calendar: AdminCalendar }) {
           <span className="block text-[13px] text-fg-muted tabular-nums">
             {deleting
               ? "Excluindo…"
-              : `${itemCount} ${itemCount === 1 ? "item" : "itens"} · ${formatMonth(month)}`}
+              : `${itemCount} ${itemCount === 1 ? "item" : "itens"} · ${formatMonthShort(month)}`}
           </span>
         </span>
         <span className="flex flex-wrap gap-1.5">

@@ -24,16 +24,6 @@ export function CalendarForm({ clientId }: { clientId: string }) {
     <form action={action} className="max-w-[520px]">
       <input type="hidden" name="clientId" value={clientId} />
       <div className="flex flex-wrap items-end gap-3">
-        <label className="min-w-44 flex-1 text-[13px] font-semibold">
-          Título
-          <input
-            name="title"
-            required
-            maxLength={CALENDAR_TITLE_MAX_LENGTH}
-            placeholder="ex.: Outubro 2026"
-            className={inputClass}
-          />
-        </label>
         <label className="min-w-40 text-[13px] font-semibold">
           Mês
           <input
@@ -41,6 +31,15 @@ export function CalendarForm({ clientId }: { clientId: string }) {
             name="month"
             required
             defaultValue={currentMonth().slice(0, 7)}
+            className={inputClass}
+          />
+        </label>
+        <label className="min-w-44 flex-1 text-[13px] font-semibold">
+          Título <span className="font-normal text-fg-muted">· opcional</span>
+          <input
+            name="title"
+            maxLength={CALENDAR_TITLE_MAX_LENGTH}
+            placeholder="em branco, usa o mês"
             className={inputClass}
           />
         </label>

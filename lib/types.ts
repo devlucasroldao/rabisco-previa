@@ -34,14 +34,23 @@ export type Presentation = {
 
 // Calendário Mensal -----------------------------------------------------
 
-export type ContentType = "post" | "carrossel" | "reels" | "story" | "campanha";
+export type ContentType =
+  | "post"
+  | "carrossel"
+  | "reels"
+  | "story"
+  | "campanha"
+  | "anuncio"
+  | "enquete";
 
+// description é opcional: só os itens que têm o que detalhar abrem pro cliente.
 export type CalendarItem = {
   id: string;
   day: string; // "YYYY-MM-DD"
   position: number;
   contentType: ContentType;
-  description: string;
+  title: string;
+  description: string | null;
 };
 
 export type Calendar = {

@@ -25,7 +25,8 @@ type CalendarRow = {
     day: string;
     position: number;
     content_type: ContentType;
-    description: string;
+    title: string;
+    description: string | null;
   }[];
 };
 
@@ -40,7 +41,7 @@ export async function getCalendarByToken(
   const { data, error } = await supabase
     .from("calendars")
     .select(
-      "active, title, month, token, client:clients!inner(name, handle, bio, avatar_path), calendar_items(id, day, position, content_type, description)",
+      "active, title, month, token, client:clients!inner(name, handle, bio, avatar_path), calendar_items(id, day, position, content_type, title, description)",
     )
     .eq("token", token)
     .order("day", { referencedTable: "calendar_items" })
@@ -81,6 +82,7 @@ export async function getCalendarByToken(
         day: item.day,
         position: item.position,
         contentType: item.content_type,
+        title: item.title,
         description: item.description,
       }),
     ),

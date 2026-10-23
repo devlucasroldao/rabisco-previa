@@ -11,6 +11,13 @@ import {
   loginErrorMessage,
   passwordUpdateErrorMessage,
 } from "@/lib/auth-error";
+import {
+  CALENDAR_DESCRIPTION_MAX_LENGTH,
+  CALENDAR_ITEM_TITLE_MAX_LENGTH,
+  CALENDAR_TITLE_MAX_LENGTH,
+  CONTENT_TYPES,
+  formatMonthYear,
+} from "@/lib/calendar-constants";
 import { newPasswordProblem, reorderProblem } from "@/lib/presentation-rules";
 import {
   avatarPath,
@@ -936,15 +943,9 @@ export async function deleteStory(storyId: string): Promise<ActionResult> {
 
 // Calendários ------------------------------------------------------------
 
-import {
-  CALENDAR_TITLE_MAX_LENGTH,
-  CALENDAR_DESCRIPTION_MAX_LENGTH,
-} from "@/lib/calendar-constants";
-
 const calendarTitleSchema = z
   .string()
   .trim()
-  .min(1, "Informe o título, ex.: Outubro 2026.")
   .max(
     CALENDAR_TITLE_MAX_LENGTH,
     `O título aceita até ${CALENDAR_TITLE_MAX_LENGTH} caracteres.`,
@@ -954,25 +955,28 @@ const calendarMonthSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-01$/, "Informe o mês (ex.: 2026-10-01).");
 
-const contentTypeSchema = z.enum([
-  "post",
-  "carrossel",
-  "reels",
-  "story",
-  "campanha",
-]);
+const contentTypeSchema = z.enum(
+  CONTENT_TYPES as [string, ...string[]],
+  "Escolha o tipo de conteúdo.",
+);
 
 const calendarItemSchema = z.object({
   calendarId: id,
   itemId: id.optional(),
-  day: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
   contentType: contentTypeSchema,
+  title: z
+    .string()
+    .trim()
+    .min(1, "Informe o título do item.")
+    .max(
+      CALENDAR_ITEM_TITLE_MAX_LENGTH,
+      `O título aceita até ${CALENDAR_ITEM_TITLE_MAX_LENGTH} caracteres.`,
+    ),
+  // Opcional: só os itens que têm o que detalhar abrem pro cliente.
   description: z
     .string()
     .trim()
-    .min(1, "Descreva o conteúdo.")
     .max(
       CALENDAR_DESCRIPTION_MAX_LENGTH,
       `A descrição aceita até ${CALENDAR_DESCRIPTION_MAX_LENGTH} caracteres.`,
@@ -986,7 +990,7 @@ export async function createCalendar(
   const { supabase } = await requireStaff();
 
   const clientId = id.safeParse(formData.get("clientId"));
-  const title = calendarTitleSchema.safeParse(formData.get("title"));
+  const title = calendarTitleSchema.safeParse(formData.get("title") ?? "");
   // <input type="month"> envia "YYYY-MM"; a coluna precisa de "YYYY-MM-01".
   const rawMonth = String(formData.get("month") ?? "");
   const monthValue = /^\d{4}-\d{2}$/.test(rawMonth) ? `${rawMonth}-01` : rawMonth;
@@ -999,7 +1003,8 @@ export async function createCalendar(
     .from("calendars")
     .insert({
       client_id: clientId.data,
-      title: title.data,
+      // Título em branco vira o próprio mês: um campo a menos pra preencher.
+      title: title.data || formatMonthYear(month.data),
       month: month.data,
       token: newToken(),
     })
@@ -1017,7 +1022,9 @@ export async function renameCalendar(
   const { supabase } = await requireStaff();
 
   const calendarId = id.safeParse(formData.get("id"));
-  const title = calendarTitleSchema.safeParse(formData.get("title"));
+  const title = calendarTitleSchema
+    .min(1, "Informe o título.")
+    .safeParse(formData.get("title"));
   if (!calendarId.success) return { error: "Calendário inválido." };
   if (!title.success) return { error: firstIssue(title.error) };
 
@@ -1080,19 +1087,22 @@ export async function saveCalendarItem(input: {
   itemId?: string;
   day: string;
   contentType: string;
+  title: string;
   description: string;
 }): Promise<ActionResult> {
   const { supabase } = await requireStaff();
 
   const parsed = calendarItemSchema.safeParse(input);
   if (!parsed.success) return { error: firstIssue(parsed.error) };
-  const { calendarId, itemId, day, contentType, description } = parsed.data;
+  const { calendarId, itemId, day, contentType, title } = parsed.data;
+  // Descrição em branco vira null: o item simplesmente não abre.
+  const description = parsed.data.description || null;
 
   try {
     if (itemId) {
       const { data, error } = await supabase
         .from("calendar_items")
-        .update({ day, content_type: contentType, description })
+        .update({ day, content_type: contentType, title, description })
         .eq("id", itemId)
         .eq("calendar_id", calendarId)
         .select("id")
@@ -1116,6 +1126,7 @@ export async function saveCalendarItem(input: {
         day,
         position,
         content_type: contentType,
+        title,
         description,
       });
       if (error) throw new Error(error.message);
