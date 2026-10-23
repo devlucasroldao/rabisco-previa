@@ -60,6 +60,8 @@ A Prévia resolve isso com **um link por semana**. O cliente abre no celular, v�
 | Cores do painel e das páginas públicas | contraste conferido por script (WCAG AA) |
 | Testes | 41 de unidade + teste de ponta a ponta com Playwright no Supabase real |
 | Custo de banco e arquivos | R$ 0 (plano gratuito do Supabase) |
+| Calendário mensal: da arquitetura aprovada à v2 redesenhada por uso real | mesmo dia, 23/10/2026 |
+| Testes automatizados cobrindo o calendário | nenhum ainda — ponto em aberto |
 
 ## ✨ Funcionalidades
 
@@ -70,11 +72,19 @@ A Prévia resolve isso com **um link por semana**. O cliente abre no celular, v�
 - 🌗 Segue o **tema do aparelho** (claro ou escuro)
 - 🔗 **Link por token**, que a equipe pode desativar, reativar ou regenerar
 
+**Calendário mensal (`/c/<token>`, sem login)**
+- 🗓️ **Grade do mês como índice**: marca os dias com conteúdo e, ao tocar, pula para o bloco na lista com um destaque de confirmação
+- 🏷️ Item por dia com tipo — Post, Carrossel, Reels, Story, Campanha, Anúncio ou Enquete — marcado por **ícone, sem cor por tipo** (de propósito: sete cores virariam arco-íris)
+- 📝 **Título sempre visível; descrição opcional**, que expande só nos itens que têm o que detalhar
+- 🔗 Mesmo padrão de **link por token** da apresentação
+
 **Painel da equipe (`/admin`)**
 - 👥 Clientes e apresentações por semana
 - 🧩 Novo post com **arrastar e soltar**, prévia dos arquivos e barra de progresso real
 - 🎞️ **Compressão de vídeo no navegador** (ffmpeg.wasm), com capa automática
 - ↕️ **Reordenar** posts arrastando (também pelo teclado)
+- 🗓️ Criar **calendário por mês** e editor de itens agrupado por dia
+- ⋯ Ações (copiar link, ver como cliente, ativar/desativar, excluir) também **na lista de recentes do início**, não só dentro do cliente
 - 📦 **Medidor de armazenamento** e limpeza em lote das semanas antigas
 - 🎨 Tema **Claro, Escuro ou Sistema**, barra lateral que vira gaveta no celular, troca de senha
 
@@ -88,6 +98,7 @@ A Prévia resolve isso com **um link por semana**. O cliente abre no celular, v�
 - **Modais abrindo no canto da tela.** O reset do Tailwind zerava a margem que o `<dialog>` nativo usa para se centralizar. A correção veio com um teste que mede o centro do modal.
 - **Armazenamento é o limite que aperta** (1 GB). A equipe guarda só as 3 últimas semanas de cada cliente, porque os originais ficam no Drive. Medidor e limpeza em lote deixam isso à vista.
 - **O que não construí:** upload em massa de posts e duplicar apresentação (o volume semanal é baixo, e duplicar dobraria o armazenamento), além de login, comentários e aprovação para o cliente.
+- **Calendário: a v1 não sobreviveu ao primeiro uso real.** Lancei um primeiro formato (descrição obrigatória, emojis por tipo, sem visão geral do mês) e, no mesmo dia, o uso com cliente real mostrou que faltava um índice do mês inteiro, que o emoji não combinava com a identidade e que a estrutura devia ser mais parecida com Notion — título sempre visível, descrição opcional e expansível. V2 saiu ainda em 23/10/2026, sobre o retorno real, não sobre suposição.
 
 ## 🔒 Segurança e acesso
 
@@ -124,6 +135,8 @@ clients         -- nome, @, bio e avatar de cada cliente
 presentations   -- uma semana por cliente; token público e estado ativo/desativado
 posts           -- post, carrossel ou Reels: legenda, mídia e posição
 stories         -- artes 9:16 organizadas pelo dia de publicação
+calendars       -- um calendário por mês/cliente; token público e estado ativo/desativado
+calendar_items  -- item por dia: tipo, título obrigatório, descrição opcional
 
 -- funções SQL
 media_usage_bytes()               -- total usado no bucket
@@ -164,6 +177,8 @@ Para rodar com Supabase, o painel, o teste de ponta a ponta e o deploy, veja o *
 - **Link por token:** quem tem o link vê a prévia. Para conteúdo ainda não publicado o risco é aceito, e a equipe pode desativar ou regenerar o link.
 - **Teste de ponta a ponta no Supabase real:** funciona, mas exige limpeza dos restos de rodadas interrompidas. Um projeto só para testes é o próximo passo.
 - **Em avaliação:** um módulo de entrega de fotos e vídeos de captações, com armazenamento próprio.
+- **Calendário sem modo demo:** só a apresentação tem `/p/demo`; o calendário ainda não tem um `/c/demo` equivalente.
+- **Calendário sem teste automatizado:** os 41 testes cobrem apresentação, stories e painel; o calendário mensal, criado em 23/10/2026, ainda não tem teste de unidade nem de ponta a ponta.
 
 ## 📚 Documentação
 
