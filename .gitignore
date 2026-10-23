@@ -41,6 +41,12 @@ build/Release
 node_modules/
 jspm_packages/
 
+# O gerenciador do projeto é o pnpm (packageManager, no package.json): o
+# lockfile versionado é o pnpm-lock.yaml. Um lockfile de npm ou yarn criado
+# por engano levaria a instalações diferentes das do pnpm-lock.
+package-lock.json
+yarn.lock
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
