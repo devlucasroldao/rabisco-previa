@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, LayoutGrid } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ContentTypeBadge } from "@/components/content-type-badge";
 import { CreatorCredit } from "@/components/creator-credit";
@@ -204,6 +204,17 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
     [reducedMotion],
   );
 
+  // "Ver calendário completo": a grade do mês já fica perto do topo, então
+  // voltar a ela — do cabeçalho fixo ou do rodapé da lista — é só rolar até
+  // lá, sem reconstruir nada.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const goToGrid = useCallback(() => {
+    gridRef.current?.scrollIntoView({
+      behavior: reducedMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }, [reducedMotion]);
+
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   return (
@@ -215,9 +226,19 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
               <span className="size-2 rounded-full bg-accent" aria-hidden="true" />
               Calendário do mês
             </p>
-            <p className="text-[12px] text-muted">
-              {items.length} {items.length === 1 ? "item" : "itens"} · Rabisco
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-[12px] text-muted">
+                {items.length} {items.length === 1 ? "item" : "itens"} · Rabisco
+              </p>
+              <button
+                type="button"
+                onClick={goToGrid}
+                className="flex items-center gap-1 text-[12px] font-semibold text-accent"
+              >
+                <LayoutGrid size={13} aria-hidden="true" />
+                Calendário
+              </button>
+            </div>
           </div>
         </header>
 
@@ -248,11 +269,13 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
           </p>
         </div>
 
-        <MonthGrid
-          month={month}
-          daysWithItems={daysWithItems}
-          onPick={goToDay}
-        />
+        <div ref={gridRef} className="scroll-mt-16">
+          <MonthGrid
+            month={month}
+            daysWithItems={daysWithItems}
+            onPick={goToDay}
+          />
+        </div>
 
         <div className="mt-5 space-y-1 px-4 pb-6">
           {sortedDays.map((day, index) => (
@@ -279,6 +302,19 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
             </div>
           ))}
         </div>
+
+        {sortedDays.length > 3 && (
+          <div className="px-4 pb-5 text-center">
+            <button
+              type="button"
+              onClick={goToGrid}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-[13px] font-semibold text-foreground"
+            >
+              <LayoutGrid size={14} aria-hidden="true" />
+              Voltar ao calendário completo
+            </button>
+          </div>
+        )}
 
         <footer className="border-t border-line px-4 pt-5 pb-[calc(24px+env(safe-area-inset-bottom))] text-center">
           <p className="text-[13px] leading-[1.4] text-muted">

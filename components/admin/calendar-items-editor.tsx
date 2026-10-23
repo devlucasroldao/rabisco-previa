@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowDownUp, Pencil, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { deleteCalendarItem, saveCalendarItem } from "@/app/admin/actions";
@@ -99,7 +99,7 @@ function ItemForm({
       className="space-y-3 rounded-xl border border-border bg-bg-subtle p-4"
     >
       <div className="flex flex-wrap gap-3">
-        <label className="w-28 text-[13px] font-semibold">
+        <label className="w-28 shrink-0 text-[13px] font-semibold whitespace-nowrap">
           Dia
           <select
             name="day"
@@ -118,9 +118,8 @@ function ItemForm({
           </select>
         </label>
         {contentType === "campanha" && (
-          <label className="w-28 text-[13px] font-semibold">
-            Dia final{" "}
-            <span className="font-normal text-fg-muted">· opcional</span>
+          <label className="w-28 shrink-0 text-[13px] font-semibold whitespace-nowrap">
+            Até <span className="font-normal text-fg-muted">· opcional</span>
             <select
               name="endDay"
               defaultValue={editing?.endDay ? dayNumberOf(editing.endDay) : ""}
@@ -135,7 +134,7 @@ function ItemForm({
             </select>
           </label>
         )}
-        <label className="w-44 text-[13px] font-semibold">
+        <label className="w-44 shrink-0 text-[13px] font-semibold whitespace-nowrap">
           Tipo
           <span className="relative block">
             <span
@@ -322,8 +321,16 @@ export function CalendarItemsEditor({
   items: AdminCalendarItem[];
 }) {
   const [adding, setAdding] = useState(false);
-  const dayGroups = groupByDay(items);
+  const [typeFilter, setTypeFilter] = useState<ContentType | "all">("all");
+  const [descending, setDescending] = useState(false);
+
+  const filteredItems =
+    typeFilter === "all"
+      ? items
+      : items.filter((item) => item.contentType === typeFilter);
+  const dayGroups = groupByDay(filteredItems);
   const sortedDays = [...dayGroups.keys()].sort();
+  if (descending) sortedDays.reverse();
 
   return (
     <div className="space-y-5">
@@ -353,28 +360,65 @@ export function CalendarItemsEditor({
         )
       ) : (
         <div className="space-y-3">
-          {sortedDays.map((day) => (
-            <div key={day} className="rounded-xl border border-border px-4 py-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-[20px] font-semibold leading-none tabular-nums">
-                  {dayNumberOf(day)}
-                </span>
-                <span className="text-[12px] font-semibold tracking-wide text-fg-muted">
-                  {weekdayOf(day)}
-                </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={typeFilter}
+              onChange={(event) =>
+                setTypeFilter(event.target.value as ContentType | "all")
+              }
+              className={`${inputClass} mt-0 w-auto min-h-9 py-1.5`}
+              aria-label="Filtrar por tipo"
+            >
+              <option value="all">Todos os tipos</option>
+              {CONTENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {CONTENT_TYPE_LABEL[type]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setDescending((value) => !value)}
+              className={buttonClass("secondary")}
+            >
+              <ArrowDownUp size={14} aria-hidden="true" />
+              {descending ? "Fim → início" : "Início → fim"}
+            </button>
+            {typeFilter !== "all" && (
+              <span className="text-[12px] text-fg-muted">
+                {filteredItems.length}{" "}
+                {filteredItems.length === 1 ? "item" : "itens"} nesse filtro
+              </span>
+            )}
+          </div>
+          {sortedDays.length === 0 ? (
+            <p className="text-[13px] text-fg-muted">
+              Nenhum item desse tipo neste mês.
+            </p>
+          ) : (
+            sortedDays.map((day) => (
+              <div key={day} className="rounded-xl border border-border px-4 py-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[20px] font-semibold leading-none tabular-nums">
+                    {dayNumberOf(day)}
+                  </span>
+                  <span className="text-[12px] font-semibold tracking-wide text-fg-muted">
+                    {weekdayOf(day)}
+                  </span>
+                </div>
+                <ul className="mt-1 divide-y divide-border">
+                  {dayGroups.get(day)!.map((item) => (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      calendarId={calendarId}
+                      month={month}
+                    />
+                  ))}
+                </ul>
               </div>
-              <ul className="mt-1 divide-y divide-border">
-                {dayGroups.get(day)!.map((item) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    calendarId={calendarId}
-                    month={month}
-                  />
-                ))}
-              </ul>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
     </div>
