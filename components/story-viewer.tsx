@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CloseIcon } from "@/components/icons";
 import {
   firstOfDay,
@@ -14,22 +14,9 @@ import {
   storyPlace,
 } from "@/lib/stories";
 import type { Story } from "@/lib/types";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 const SWIPE_CLOSE_PX = 80;
-
-function subscribeReducedMotion(listener: () => void) {
-  const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-  query.addEventListener("change", listener);
-  return () => query.removeEventListener("change", listener);
-}
-
-function useReducedMotion(): boolean {
-  return useSyncExternalStore(
-    subscribeReducedMotion,
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    () => false,
-  );
-}
 
 export function StoryViewer({
   stories,
@@ -164,7 +151,7 @@ export function StoryViewer({
       aria-modal="true"
       aria-label={label}
       onKeyDown={onKeyDown}
-      className="fixed inset-0 z-50 flex flex-col bg-black text-white select-none"
+      className="public-overlay-in fixed inset-0 z-50 flex flex-col bg-black text-white select-none"
     >
       <div className="mx-auto flex w-full max-w-[470px] flex-1 flex-col overflow-hidden">
         <header className="shrink-0 px-2 pt-[calc(8px+env(safe-area-inset-top))]">

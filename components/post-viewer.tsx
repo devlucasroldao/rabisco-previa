@@ -54,7 +54,7 @@ export function PostViewer({
       onKeyDown={(event) => {
         if (event.key === "Escape") onClose?.();
       }}
-      className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-background outline-none"
+      className="public-overlay-in fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-background outline-none"
     >
       <div className="mx-auto max-w-[470px]">
         <header className="sticky top-0 z-10 grid h-[52px] grid-cols-[44px_1fr_44px] items-center border-b border-line bg-background px-1">

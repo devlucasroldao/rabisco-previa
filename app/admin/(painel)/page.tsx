@@ -2,19 +2,21 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowRight, HardDrive, Plus } from "lucide-react";
 import { Avatar } from "@/components/admin/avatar";
-import { Badge } from "@/components/admin/primitives/badge";
 import { EmptyState } from "@/components/admin/primitives/empty-state";
 import { PageHeader } from "@/components/admin/primitives/page-header";
 import { ListSkeleton } from "@/components/admin/primitives/skeleton";
+import {
+  RecentCalendarRow,
+  RecentPresentationRow,
+} from "@/components/admin/recent-rows";
 import { buttonClass } from "@/components/admin/ui";
 import {
   countCalendarsByClient,
   listRecentCalendars,
 } from "@/lib/admin-calendar-data";
 import { listRecentPresentations } from "@/lib/admin-data";
-import { formatMonthShort } from "@/lib/calendar-constants";
 import { shellClients, shellStorage } from "@/lib/admin-shell";
-import { ageLabel, meterShortLabel } from "@/lib/storage-rules";
+import { meterShortLabel } from "@/lib/storage-rules";
 
 const RECENT = 6;
 
@@ -118,24 +120,10 @@ async function Home() {
         ) : (
           <ul className="divide-y divide-border border-y border-border">
             {presentations.map((presentation) => (
-              <li key={presentation.id} className="admin-list-in">
-                <Link
-                  href={`/admin/apresentacoes/${presentation.id}`}
-                  className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--dur-fast) hover:bg-hover"
-                >
-                  <span className="min-w-0 flex-1 basis-56">
-                    <span className="block truncate text-[14px] font-semibold">{presentation.title}</span>
-                    <span className="block truncate text-[13px] text-fg-muted">
-                      {presentation.clientName} · {presentation.postCount}{" "}
-                      {presentation.postCount === 1 ? "post" : "posts"}
-                      {presentation.ageDays !== null && ` · ${ageLabel(presentation.ageDays)}`}
-                    </span>
-                  </span>
-                  <Badge tone={presentation.active ? "success" : "danger"}>
-                    {presentation.active ? "Link ativo" : "Link desativado"}
-                  </Badge>
-                </Link>
-              </li>
+              <RecentPresentationRow
+                key={presentation.id}
+                presentation={presentation}
+              />
             ))}
           </ul>
         )}
@@ -152,26 +140,7 @@ async function Home() {
         ) : (
           <ul className="divide-y divide-border border-y border-border">
             {calendars.map((calendar) => (
-              <li key={calendar.id} className="admin-list-in">
-                <Link
-                  href={`/admin/calendarios/${calendar.id}`}
-                  className="flex min-h-16 flex-wrap items-center gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--dur-fast) hover:bg-hover"
-                >
-                  <span className="min-w-0 flex-1 basis-56">
-                    <span className="block truncate text-[14px] font-semibold">
-                      {calendar.title}
-                    </span>
-                    <span className="block truncate text-[13px] text-fg-muted">
-                      {calendar.clientName} · {calendar.itemCount}{" "}
-                      {calendar.itemCount === 1 ? "item" : "itens"} ·{" "}
-                      {formatMonthShort(calendar.month)}
-                    </span>
-                  </span>
-                  <Badge tone={calendar.active ? "success" : "danger"}>
-                    {calendar.active ? "Link ativo" : "Link desativado"}
-                  </Badge>
-                </Link>
-              </li>
+              <RecentCalendarRow key={calendar.id} calendar={calendar} />
             ))}
           </ul>
         )}

@@ -4,31 +4,10 @@ import { ExternalLink, Link2, Link2Off } from "lucide-react";
 import { useTransition } from "react";
 import { toast } from "sonner";
 import { setCalendarActive } from "@/app/admin/actions";
+import { calendarInactiveToast, copyCalendarLink } from "./calendar-link";
 import { ActionMenu } from "./primitives/action-menu";
 import { Badge } from "./primitives/badge";
 import { buttonClass } from "./ui";
-
-function calendarUrl(token: string): string {
-  return `${window.location.origin}/c/${token}`;
-}
-
-async function copyCalendarLink(token: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(calendarUrl(token));
-    toast.success("Link copiado", { id: "link-copiado", description: "Cole no WhatsApp do cliente." });
-    return true;
-  } catch {
-    toast.error("Não deu pra copiar o link.");
-    return false;
-  }
-}
-
-const INACTIVE_WARNING =
-  'O link está desativado: quem abrir vê “Este calendário não existe ou foi removido”. Reative pra ele voltar a funcionar.';
-
-function inactiveToast() {
-  toast.error(INACTIVE_WARNING, { id: "link-inativo" });
-}
 
 export function CalendarLinkControls({
   calendarId,
@@ -54,7 +33,7 @@ export function CalendarLinkControls({
       <Badge tone={active ? "success" : "danger"}>{active ? "Link ativo" : "Link desativado"}</Badge>
       <button
         type="button"
-        onClick={() => (active ? void copyCalendarLink(token) : inactiveToast())}
+        onClick={() => (active ? void copyCalendarLink(token) : calendarInactiveToast())}
         className={buttonClass("primary")}
       >
         <Link2 size={16} aria-hidden="true" />
@@ -66,7 +45,7 @@ export function CalendarLinkControls({
           Ver como cliente
         </a>
       ) : (
-        <button type="button" onClick={inactiveToast} className={buttonClass("secondary")}>
+        <button type="button" onClick={calendarInactiveToast} className={buttonClass("secondary")}>
           <ExternalLink size={16} aria-hidden="true" />
           Ver como cliente
         </button>

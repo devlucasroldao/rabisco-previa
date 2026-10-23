@@ -8,31 +8,10 @@ import { toast } from "sonner";
 import { deleteCalendar, setCalendarActive } from "@/app/admin/actions";
 import type { AdminCalendar } from "@/lib/admin-calendar-data";
 import { formatMonthShort } from "@/lib/calendar-constants";
+import { calendarInactiveToast, copyCalendarLink } from "./calendar-link";
 import { ActionMenu } from "./primitives/action-menu";
 import { Badge } from "./primitives/badge";
 import { ConfirmDialog } from "./primitives/confirm-dialog";
-
-function calendarUrl(token: string): string {
-  return `${window.location.origin}/c/${token}`;
-}
-
-async function copyCalendarLink(token: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(calendarUrl(token));
-    toast.success("Link copiado", { id: "link-copiado", description: "Cole no WhatsApp do cliente." });
-    return true;
-  } catch {
-    toast.error("Não deu pra copiar o link.");
-    return false;
-  }
-}
-
-function inactiveToast() {
-  toast.error(
-    'O link está desativado: quem abrir vê “Este calendário não existe ou foi removido”. Reative pra ele voltar a funcionar.',
-    { id: "link-inativo" },
-  );
-}
 
 export function CalendarRow({ calendar }: { calendar: AdminCalendar }) {
   const router = useRouter();
@@ -94,12 +73,12 @@ export function CalendarRow({ calendar }: { calendar: AdminCalendar }) {
           {
             label: "Copiar link",
             icon: <Link2 size={16} />,
-            onSelect: () => (active ? void copyCalendarLink(token) : inactiveToast()),
+            onSelect: () => (active ? void copyCalendarLink(token) : calendarInactiveToast()),
           },
           {
             label: "Ver como cliente",
             icon: <ExternalLink size={16} />,
-            onSelect: () => (active ? window.open(`/c/${token}`, "_blank", "noreferrer") : inactiveToast()),
+            onSelect: () => (active ? window.open(`/c/${token}`, "_blank", "noreferrer") : calendarInactiveToast()),
           },
           active
             ? { label: "Desativar link", icon: <Link2Off size={16} />, onSelect: toggleActive }

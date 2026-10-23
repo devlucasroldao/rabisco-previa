@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ContentTypeBadge } from "@/components/content-type-badge";
 import { CreatorCredit } from "@/components/creator-credit";
 import {
@@ -16,6 +16,7 @@ import {
   weekdayOf,
 } from "@/lib/calendar-constants";
 import type { Calendar, CalendarItem } from "@/lib/types";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 function groupByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
   const groups = new Map<string, CalendarItem[]>();
@@ -122,36 +123,40 @@ function Item({ item }: { item: CalendarItem }) {
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
-        className="flex w-full items-start gap-3 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-surface"
+        className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-surface"
       >
         {head}
         <ChevronDown
           size={16}
           aria-hidden="true"
-          className={`mt-0.5 shrink-0 text-muted transition-transform duration-200 ${
+          className={`mt-0.5 shrink-0 text-muted transition-transform duration-(--dur-base) ease-(--ease) ${
             open ? "rotate-180" : ""
           }`}
         />
       </button>
-      {open && (
-        <div className="border-t border-line px-3 pt-3 pb-3.5">
-          <dl className="mb-3 space-y-1.5">
-            <div className="flex gap-2 text-[12px]">
-              <dt className="w-16 shrink-0 text-muted">Tipo</dt>
-              <dd className="font-medium">
-                {CONTENT_TYPE_LABEL[item.contentType]}
-              </dd>
-            </div>
-            <div className="flex gap-2 text-[12px]">
-              <dt className="w-16 shrink-0 text-muted">Data</dt>
-              <dd className="font-medium">{formatFullDate(item.day)}</dd>
-            </div>
-          </dl>
-          <p className="text-[13px] leading-[1.6] whitespace-pre-line">
-            {item.description}
-          </p>
+      {/* Fica sempre no DOM pra altura poder transicionar; inert tira o
+          conteúdo fechado do foco e dos leitores de tela. */}
+      <div className="public-reveal" data-open={open}>
+        <div>
+          <div inert={!open} className="border-t border-line px-3 pt-3 pb-3.5">
+            <dl className="mb-3 space-y-1.5">
+              <div className="flex gap-2 text-[12px]">
+                <dt className="w-16 shrink-0 text-muted">Tipo</dt>
+                <dd className="font-medium">
+                  {CONTENT_TYPE_LABEL[item.contentType]}
+                </dd>
+              </div>
+              <div className="flex gap-2 text-[12px]">
+                <dt className="w-16 shrink-0 text-muted">Data</dt>
+                <dd className="font-medium">{formatFullDate(item.day)}</dd>
+              </div>
+            </dl>
+            <p className="text-[13px] leading-[1.6] whitespace-pre-line">
+              {item.description}
+            </p>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -163,17 +168,32 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
   const daysWithItems = new Set(sortedDays);
   const hasAnyDetail = items.some((item) => item.description);
 
+  // Depois de rolar, o bloco pisca uma vez: sem isso o salto parece não ter
+  // acontecido quando o dia de destino já estava perto da dobra.
+  const reducedMotion = useReducedMotion();
+  const [flashing, setFlashing] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
+
   const dayRefs = useRef(new Map<string, HTMLDivElement>());
   const registerDay = useCallback((day: string, node: HTMLDivElement | null) => {
     if (node) dayRefs.current.set(day, node);
     else dayRefs.current.delete(day);
   }, []);
 
-  const goToDay = useCallback((day: string) => {
-    dayRefs.current
-      .get(day)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, []);
+  const goToDay = useCallback(
+    (day: string) => {
+      dayRefs.current.get(day)?.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "center",
+      });
+      window.clearTimeout(flashTimer.current);
+      setFlashing(day);
+      flashTimer.current = window.setTimeout(() => setFlashing(null), 900);
+    },
+    [reducedMotion],
+  );
+
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   return (
     <div className="min-h-dvh bg-background">
@@ -224,11 +244,13 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
         />
 
         <div className="mt-5 space-y-1 px-4 pb-6">
-          {sortedDays.map((day) => (
+          {sortedDays.map((day, index) => (
             <div
               key={day}
               ref={(node) => registerDay(day, node)}
-              className="scroll-mt-16 rounded-xl bg-surface p-4"
+              style={{ "--i": index } as React.CSSProperties}
+              data-flash={flashing === day}
+              className="public-in public-day scroll-mt-16 rounded-xl bg-surface p-4"
             >
               <div className="mb-3 flex items-baseline gap-2">
                 <span className="text-[28px] leading-none font-bold tabular-nums">

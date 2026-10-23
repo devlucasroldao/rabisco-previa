@@ -102,7 +102,8 @@ export function ProfileGrid({
               type="button"
               onClick={() => onOpen(number)}
               aria-label={`Abrir post ${number}, ${postTypeLabel(post)}`}
-              className="relative aspect-[3/4] cursor-pointer overflow-hidden bg-surface focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-accent"
+              style={{ "--i": index } as React.CSSProperties}
+              className="public-in-pop relative aspect-[3/4] cursor-pointer overflow-hidden bg-surface focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-accent"
             >
               {thumbnail && (
                 // eslint-disable-next-line @next/next/no-img-element

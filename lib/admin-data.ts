@@ -27,6 +27,7 @@ export type AdminClientSummary = AdminClient & {
 export type RecentPresentation = {
   id: string;
   title: string;
+  token: string;
   active: boolean;
   clientName: string;
   postCount: number;
@@ -92,13 +93,16 @@ export async function listRecentPresentations(limit = 6): Promise<RecentPresenta
 
   const { data, error } = await supabase
     .from("presentations")
-    .select("id, title, active, created_at, client:clients!inner(name), posts(count)")
+    .select(
+      "id, title, token, active, created_at, client:clients!inner(name), posts(count)",
+    )
     .order("created_at", { ascending: false })
     .limit(limit)
     .overrideTypes<
       {
         id: string;
         title: string;
+        token: string;
         active: boolean | null;
         created_at: string | null;
         client: { name: string };
@@ -112,6 +116,7 @@ export async function listRecentPresentations(limit = 6): Promise<RecentPresenta
   return data.map((row) => ({
     id: row.id,
     title: row.title,
+    token: row.token,
     active: row.active !== false,
     clientName: row.client.name,
     postCount: row.posts[0]?.count ?? 0,

@@ -15,6 +15,12 @@
   --hashtag: #00376b;
   /* Anel do avatar quando todos os stories já foram vistos. */
   --story-seen: #dbdbdb;
+
+  /* Movimento: mesmos tempos do painel, pra as duas telas terem o mesmo ritmo. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -53,4 +59,114 @@
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* Movimento das telas do cliente -----------------------------------------
+ *
+ * O painel já tinha o dele em app/admin/theme.css; aqui vale o mesmo
+ * princípio: transição curta, nada que atrase o toque, e tudo desligável
+ * por prefers-reduced-motion no fim do arquivo.
+ */
+
+@keyframes public-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes public-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes public-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* Botões e links afundam de leve ao toque: é o retorno que faltava. */
+button:not(:disabled):active,
+a[href]:active,
+[role="button"]:active {
+  transform: scale(0.97);
+}
+button,
+a[href],
+[role="button"] {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease);
+}
+
+/* Entrada de cada bloco de dia e de cada miniatura do feed. O atraso vem de
+ * --i, que o componente define por índice; o teto evita que o último item de
+ * uma lista longa demore a aparecer. */
+.public-in {
+  animation: public-fade-up var(--dur-base) var(--ease) both;
+  animation-delay: calc(min(var(--i, 0) * 28ms, 280ms));
+}
+.public-in-pop {
+  animation: public-pop var(--dur-base) var(--ease) both;
+  animation-delay: calc(min(var(--i, 0) * 22ms, 220ms));
+}
+.public-in-fade {
+  animation: public-fade var(--dur-base) var(--ease) both;
+}
+
+/* Visualizadores de post e story: entram por cima, sem piscar. */
+.public-overlay-in {
+  animation: public-fade var(--dur-fast) var(--ease) both;
+}
+
+/* Detalhe do item do calendário: a altura cresce sozinha, sem JS medindo. */
+.public-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease);
+}
+.public-reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.public-reveal > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Dia de destino do salto pela grade: o fundo acende e volta sozinho. É uma
+ * transição, e não uma animação, pra não brigar com a entrada do bloco — as
+ * duas estão no mesmo elemento e `animation` não soma entre classes. */
+.public-day {
+  transition: background-color var(--dur-slow) var(--ease);
+}
+.public-day[data-flash="true"] {
+  background-color: color-mix(in oklab, var(--accent) 16%, var(--surface));
+}
+
+/* Movimento reduzido: desliga só o que é decoração. A barra do story fica de
+ * fora de propósito — o avanço depende do animationend dela, então apagá-la
+ * travaria o story em vez de acalmá-lo. */
+@media (prefers-reduced-motion: reduce) {
+  .public-in,
+  .public-in-pop,
+  .public-in-fade,
+  .public-overlay-in,
+  .public-flash {
+    animation: none !important;
+  }
+  button,
+  a[href],
+  [role="button"] {
+    transition-property: color, background-color, border-color !important;
+  }
+  button:active,
+  a[href]:active,
+  [role="button"]:active {
+    transform: none !important;
+  }
+  /* O detalhe abre e fecha na hora, sem a altura deslizando. */
+  .public-reveal {
+    transition: none !important;
+  }
 }

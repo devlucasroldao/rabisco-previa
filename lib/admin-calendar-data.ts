@@ -37,6 +37,7 @@ export type RecentCalendar = {
   id: string;
   title: string;
   month: string;
+  token: string;
   active: boolean;
   clientName: string;
   itemCount: number;
@@ -143,7 +144,7 @@ export async function listRecentCalendars(limit = 6): Promise<RecentCalendar[]> 
   const { data, error } = await supabase
     .from("calendars")
     .select(
-      "id, title, month, active, client:clients!inner(name), calendar_items(count)",
+      "id, title, month, token, active, client:clients!inner(name), calendar_items(count)",
     )
     .order("created_at", { ascending: false })
     .limit(limit)
@@ -152,6 +153,7 @@ export async function listRecentCalendars(limit = 6): Promise<RecentCalendar[]> 
         id: string;
         title: string;
         month: string;
+        token: string;
         active: boolean | null;
         client: { name: string };
         calendar_items: { count: number }[];
@@ -164,6 +166,7 @@ export async function listRecentCalendars(limit = 6): Promise<RecentCalendar[]> 
     id: row.id,
     title: row.title,
     month: row.month,
+    token: row.token,
     active: row.active !== false,
     clientName: row.client.name,
     itemCount: row.calendar_items[0]?.count ?? 0,
