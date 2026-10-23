@@ -1,11 +1,14 @@
 import { Suspense } from "react";
 import { Avatar } from "@/components/admin/avatar";
+import { CalendarForm } from "@/components/admin/calendar-form";
+import { CalendarRow } from "@/components/admin/calendar-row";
 import { ClientActions } from "@/components/admin/client-actions";
 import { PresentationForm } from "@/components/admin/presentation-form";
 import { PresentationRow } from "@/components/admin/presentation-row";
 import { EmptyState } from "@/components/admin/primitives/empty-state";
 import { PageHeader } from "@/components/admin/primitives/page-header";
 import { ListSkeleton, Skeleton } from "@/components/admin/primitives/skeleton";
+import { listCalendars } from "@/lib/admin-calendar-data";
 import { getClient } from "@/lib/admin-data";
 
 export default function Page({ params }: PageProps<"/admin/clientes/[id]">) {
@@ -36,6 +39,7 @@ async function ClientLoader({ params }: Pick<PageProps<"/admin/clientes/[id]">, 
     );
   }
   const { client, presentations } = result;
+  const calendars = await listCalendars(client.id);
 
   return (
     <>
@@ -65,6 +69,26 @@ async function ClientLoader({ params }: Pick<PageProps<"/admin/clientes/[id]">, 
             <ul className="divide-y divide-border border-y border-border">
               {presentations.map((presentation) => (
                 <PresentationRow key={presentation.id} presentation={presentation} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section aria-labelledby="calendarios" className="mt-10">
+        <h2 id="calendarios" className="mb-3 text-[18px] font-semibold">
+          Calendários <span className="font-normal text-fg-muted">· {calendars.length}</span>
+        </h2>
+        <CalendarForm clientId={client.id} />
+        <div className="mt-6">
+          {calendars.length === 0 ? (
+            <EmptyState title="Nenhum calendário ainda">
+              Dê um título e escolha o mês para montar o planejamento de conteúdo.
+            </EmptyState>
+          ) : (
+            <ul className="divide-y divide-border border-y border-border">
+              {calendars.map((calendar) => (
+                <CalendarRow key={calendar.id} calendar={calendar} />
               ))}
             </ul>
           )}

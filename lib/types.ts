@@ -31,3 +31,23 @@ export type Presentation = {
   posts: Post[];
   stories: Story[];
 };
+
+// Calendário Mensal -----------------------------------------------------
+
+export type ContentType = "post" | "carrossel" | "reels" | "story" | "campanha";
+
+export type CalendarItem = {
+  id: string;
+  day: string; // "YYYY-MM-DD"
+  position: number;
+  contentType: ContentType;
+  description: string;
+};
+
+export type Calendar = {
+  title: string;
+  month: string; // "YYYY-MM-DD" (primeiro dia do mês)
+  token: string;
+  client: Client;
+  items: CalendarItem[];
+};

@@ -933,3 +933,213 @@ export async function deleteStory(storyId: string): Promise<ActionResult> {
   refresh();
   return {};
 }
+
+// Calendários ------------------------------------------------------------
+
+import {
+  CALENDAR_TITLE_MAX_LENGTH,
+  CALENDAR_DESCRIPTION_MAX_LENGTH,
+} from "@/lib/calendar-constants";
+
+const calendarTitleSchema = z
+  .string()
+  .trim()
+  .min(1, "Informe o título, ex.: Outubro 2026.")
+  .max(
+    CALENDAR_TITLE_MAX_LENGTH,
+    `O título aceita até ${CALENDAR_TITLE_MAX_LENGTH} caracteres.`,
+  );
+
+const calendarMonthSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-01$/, "Informe o mês (ex.: 2026-10-01).");
+
+const contentTypeSchema = z.enum([
+  "post",
+  "carrossel",
+  "reels",
+  "story",
+  "campanha",
+]);
+
+const calendarItemSchema = z.object({
+  calendarId: id,
+  itemId: id.optional(),
+  day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
+  contentType: contentTypeSchema,
+  description: z
+    .string()
+    .trim()
+    .min(1, "Descreva o conteúdo.")
+    .max(
+      CALENDAR_DESCRIPTION_MAX_LENGTH,
+      `A descrição aceita até ${CALENDAR_DESCRIPTION_MAX_LENGTH} caracteres.`,
+    ),
+});
+
+export async function createCalendar(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const { supabase } = await requireStaff();
+
+  const clientId = id.safeParse(formData.get("clientId"));
+  const title = calendarTitleSchema.safeParse(formData.get("title"));
+  // <input type="month"> envia "YYYY-MM"; a coluna precisa de "YYYY-MM-01".
+  const rawMonth = String(formData.get("month") ?? "");
+  const monthValue = /^\d{4}-\d{2}$/.test(rawMonth) ? `${rawMonth}-01` : rawMonth;
+  const month = calendarMonthSchema.safeParse(monthValue);
+  if (!clientId.success) return { error: "Cliente inválido." };
+  if (!title.success) return { error: firstIssue(title.error) };
+  if (!month.success) return { error: "Informe o mês." };
+
+  const { data, error } = await supabase
+    .from("calendars")
+    .insert({
+      client_id: clientId.data,
+      title: title.data,
+      month: month.data,
+      token: newToken(),
+    })
+    .select("id")
+    .single();
+  if (error) return { error: `Não deu pra criar: ${error.message}` };
+
+  redirect(`/admin/calendarios/${data.id}`);
+}
+
+export async function renameCalendar(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const { supabase } = await requireStaff();
+
+  const calendarId = id.safeParse(formData.get("id"));
+  const title = calendarTitleSchema.safeParse(formData.get("title"));
+  if (!calendarId.success) return { error: "Calendário inválido." };
+  if (!title.success) return { error: firstIssue(title.error) };
+
+  const { data, error } = await supabase
+    .from("calendars")
+    .update({ title: title.data })
+    .eq("id", calendarId.data)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: `Não deu pra salvar: ${error.message}` };
+  if (!data) return { error: "Este calendário não existe mais." };
+
+  refresh();
+  return { saved: true };
+}
+
+export async function setCalendarActive(
+  calendarId: string,
+  active: boolean,
+): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(calendarId).success || typeof active !== "boolean") {
+    return { error: "Calendário inválido." };
+  }
+
+  const { data, error } = await supabase
+    .from("calendars")
+    .update({ active })
+    .eq("id", calendarId)
+    .select("id")
+    .maybeSingle();
+  if (error) return { error: `Não deu pra mudar o link: ${error.message}` };
+  if (!data) return { error: "Este calendário não existe mais." };
+
+  refresh();
+  return {};
+}
+
+export async function deleteCalendar(
+  calendarId: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(calendarId).success) {
+    return { error: "Calendário inválido." };
+  }
+
+  // Sem mídia: basta apagar a linha (os itens caem em cascata).
+  const { error } = await supabase
+    .from("calendars")
+    .delete()
+    .eq("id", calendarId);
+  if (error) return { error: `Não deu pra excluir: ${error.message}` };
+
+  refresh();
+  return {};
+}
+
+export async function saveCalendarItem(input: {
+  calendarId: string;
+  itemId?: string;
+  day: string;
+  contentType: string;
+  description: string;
+}): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+
+  const parsed = calendarItemSchema.safeParse(input);
+  if (!parsed.success) return { error: firstIssue(parsed.error) };
+  const { calendarId, itemId, day, contentType, description } = parsed.data;
+
+  try {
+    if (itemId) {
+      const { data, error } = await supabase
+        .from("calendar_items")
+        .update({ day, content_type: contentType, description })
+        .eq("id", itemId)
+        .eq("calendar_id", calendarId)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!data) return { error: "Este item não existe mais." };
+    } else {
+      // Posição: último do dia + 1.
+      const { data: existing, error: readError } = await supabase
+        .from("calendar_items")
+        .select("position")
+        .eq("calendar_id", calendarId)
+        .eq("day", day)
+        .order("position", { ascending: false })
+        .limit(1);
+      if (readError) throw new Error(readError.message);
+      const position = (existing[0]?.position ?? 0) + 1;
+
+      const { error } = await supabase.from("calendar_items").insert({
+        calendar_id: calendarId,
+        day,
+        position,
+        content_type: contentType,
+        description,
+      });
+      if (error) throw new Error(error.message);
+    }
+  } catch (error) {
+    return { error: `Não deu pra salvar o item: ${message(error)}` };
+  }
+
+  refresh();
+  return {};
+}
+
+export async function deleteCalendarItem(
+  itemId: string,
+): Promise<ActionResult> {
+  const { supabase } = await requireStaff();
+  if (!id.safeParse(itemId).success) return { error: "Item inválido." };
+
+  const { error } = await supabase
+    .from("calendar_items")
+    .delete()
+    .eq("id", itemId);
+  if (error) return { error: `Não deu pra excluir o item: ${error.message}` };
+
+  refresh();
+  return {};
+}
