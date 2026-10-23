@@ -204,15 +204,10 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
     [reducedMotion],
   );
 
-  // "Ver calendário completo": a grade do mês já fica perto do topo, então
-  // voltar a ela — do cabeçalho fixo ou do rodapé da lista — é só rolar até
-  // lá, sem reconstruir nada.
-  const gridRef = useRef<HTMLDivElement>(null);
-  const goToGrid = useCallback(() => {
-    gridRef.current?.scrollIntoView({
-      behavior: reducedMotion ? "auto" : "smooth",
-      block: "start",
-    });
+  // "Ver calendário completo": sobe pro topo de verdade — é lá que fica a
+  // grade do mês — tanto do cabeçalho fixo quanto do fim da lista de dias.
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: reducedMotion ? "auto" : "smooth" });
   }, [reducedMotion]);
 
   useEffect(() => () => window.clearTimeout(flashTimer.current), []);
@@ -226,19 +221,14 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
               <span className="size-2 rounded-full bg-accent" aria-hidden="true" />
               Calendário do mês
             </p>
-            <div className="flex items-center gap-3">
-              <p className="text-[12px] text-muted">
-                {items.length} {items.length === 1 ? "item" : "itens"} · Rabisco
-              </p>
-              <button
-                type="button"
-                onClick={goToGrid}
-                className="flex items-center gap-1 text-[12px] font-semibold text-accent"
-              >
-                <LayoutGrid size={13} aria-hidden="true" />
-                Calendário
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={scrollToTop}
+              className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-[12px] font-semibold text-white"
+            >
+              <LayoutGrid size={13} aria-hidden="true" />
+              Ver calendário completo
+            </button>
           </div>
         </header>
 
@@ -252,10 +242,13 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
               height={48}
               className="size-12 rounded-full border border-line object-cover"
             />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-[15px] font-bold">{client.handle}</p>
               <p className="text-[13px] text-muted">{client.name}</p>
             </div>
+            <p className="shrink-0 text-[12px] text-muted">
+              {items.length} {items.length === 1 ? "item" : "itens"} · Rabisco
+            </p>
           </div>
         </div>
 
@@ -269,13 +262,11 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
           </p>
         </div>
 
-        <div ref={gridRef} className="scroll-mt-16">
-          <MonthGrid
-            month={month}
-            daysWithItems={daysWithItems}
-            onPick={goToDay}
-          />
-        </div>
+        <MonthGrid
+          month={month}
+          daysWithItems={daysWithItems}
+          onPick={goToDay}
+        />
 
         <div className="mt-5 space-y-1 px-4 pb-6">
           {sortedDays.map((day, index) => (
@@ -307,8 +298,8 @@ export function CalendarView({ calendar }: { calendar: Calendar }) {
           <div className="px-4 pb-5 text-center">
             <button
               type="button"
-              onClick={goToGrid}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-[13px] font-semibold text-foreground"
+              onClick={scrollToTop}
+              className="inline-flex items-center gap-1.5 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-white"
             >
               <LayoutGrid size={14} aria-hidden="true" />
               Voltar ao calendário completo

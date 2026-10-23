@@ -98,9 +98,13 @@ function ItemForm({
       action={handleSubmit}
       className="space-y-3 rounded-xl border border-border bg-bg-subtle p-4"
     >
-      <div className="flex flex-wrap gap-3">
-        <label className="w-28 shrink-0 text-[13px] font-semibold whitespace-nowrap">
-          Dia
+      {/* Cada campo é label → span de texto (bloco) → controle: o span força
+          o controle pra linha seguinte sempre, em vez de depender da largura
+          sobrar ou não espaço pro texto quebrar sozinho (foi isso que
+          bagunçou o layout antes). */}
+      <div className="flex flex-wrap items-start gap-3">
+        <label className="w-28 shrink-0 text-[13px] font-semibold">
+          <span className="mb-1 block whitespace-nowrap">Dia</span>
           <select
             name="day"
             required
@@ -118,8 +122,10 @@ function ItemForm({
           </select>
         </label>
         {contentType === "campanha" && (
-          <label className="w-28 shrink-0 text-[13px] font-semibold whitespace-nowrap">
-            Até <span className="font-normal text-fg-muted">· opcional</span>
+          <label className="w-32 shrink-0 text-[13px] font-semibold">
+            <span className="mb-1 block whitespace-nowrap">
+              Até <span className="font-normal text-fg-muted">· opcional</span>
+            </span>
             <select
               name="endDay"
               defaultValue={editing?.endDay ? dayNumberOf(editing.endDay) : ""}
@@ -134,8 +140,8 @@ function ItemForm({
             </select>
           </label>
         )}
-        <label className="w-44 shrink-0 text-[13px] font-semibold whitespace-nowrap">
-          Tipo
+        <label className="w-44 shrink-0 text-[13px] font-semibold">
+          <span className="mb-1 block whitespace-nowrap">Tipo</span>
           <span className="relative block">
             <span
               aria-hidden="true"
@@ -164,7 +170,7 @@ function ItemForm({
           </span>
         </label>
         <label className="min-w-56 flex-1 text-[13px] font-semibold">
-          Título
+          <span className="mb-1 block">Título</span>
           <input
             name="title"
             required
