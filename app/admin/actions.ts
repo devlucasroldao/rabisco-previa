@@ -960,28 +960,51 @@ const contentTypeSchema = z.enum(
   "Escolha o tipo de conteúdo.",
 );
 
-const calendarItemSchema = z.object({
-  calendarId: id,
-  itemId: id.optional(),
-  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
-  contentType: contentTypeSchema,
-  title: z
-    .string()
-    .trim()
-    .min(1, "Informe o título do item.")
-    .max(
-      CALENDAR_ITEM_TITLE_MAX_LENGTH,
-      `O título aceita até ${CALENDAR_ITEM_TITLE_MAX_LENGTH} caracteres.`,
-    ),
-  // Opcional: só os itens que têm o que detalhar abrem pro cliente.
-  description: z
-    .string()
-    .trim()
-    .max(
-      CALENDAR_DESCRIPTION_MAX_LENGTH,
-      `A descrição aceita até ${CALENDAR_DESCRIPTION_MAX_LENGTH} caracteres.`,
-    ),
-});
+const calendarItemSchema = z
+  .object({
+    calendarId: id,
+    itemId: id.optional(),
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
+    // Só campanha usa: dia final do intervalo, se a campanha durar mais de
+    // um dia. Vazio vira null nos outros tipos e numa campanha de um dia só.
+    endDay: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data final válida.")
+      .optional()
+      .or(z.literal("")),
+    contentType: contentTypeSchema,
+    title: z
+      .string()
+      .trim()
+      .min(1, "Informe o título do item.")
+      .max(
+        CALENDAR_ITEM_TITLE_MAX_LENGTH,
+        `O título aceita até ${CALENDAR_ITEM_TITLE_MAX_LENGTH} caracteres.`,
+      ),
+    // Opcional: só os itens que têm o que detalhar abrem pro cliente.
+    description: z
+      .string()
+      .trim()
+      .max(
+        CALENDAR_DESCRIPTION_MAX_LENGTH,
+        `A descrição aceita até ${CALENDAR_DESCRIPTION_MAX_LENGTH} caracteres.`,
+      ),
+  })
+  .refine((value) => !value.endDay || value.contentType === "campanha", {
+    message: "Dia final é só pra campanha.",
+    path: ["endDay"],
+  })
+  .refine((value) => !value.endDay || value.endDay >= value.day, {
+    message: "O dia final não pode vir antes do dia inicial.",
+    path: ["endDay"],
+  })
+  .refine(
+    (value) => !value.endDay || value.endDay.slice(0, 7) === value.day.slice(0, 7),
+    {
+      message: "O dia final precisa estar no mesmo mês do calendário.",
+      path: ["endDay"],
+    },
+  );
 
 export async function createCalendar(
   _prev: FormState,
@@ -1086,6 +1109,7 @@ export async function saveCalendarItem(input: {
   calendarId: string;
   itemId?: string;
   day: string;
+  endDay?: string;
   contentType: string;
   title: string;
   description: string;
@@ -1097,12 +1121,13 @@ export async function saveCalendarItem(input: {
   const { calendarId, itemId, day, contentType, title } = parsed.data;
   // Descrição em branco vira null: o item simplesmente não abre.
   const description = parsed.data.description || null;
+  const endDay = parsed.data.endDay || null;
 
   try {
     if (itemId) {
       const { data, error } = await supabase
         .from("calendar_items")
-        .update({ day, content_type: contentType, title, description })
+        .update({ day, end_day: endDay, content_type: contentType, title, description })
         .eq("id", itemId)
         .eq("calendar_id", calendarId)
         .select("id")
@@ -1124,6 +1149,7 @@ export async function saveCalendarItem(input: {
       const { error } = await supabase.from("calendar_items").insert({
         calendar_id: calendarId,
         day,
+        end_day: endDay,
         position,
         content_type: contentType,
         title,

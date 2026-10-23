@@ -2,7 +2,7 @@ import type { ContentType } from "./types";
 
 export const CALENDAR_TITLE_MAX_LENGTH = 60;
 export const CALENDAR_ITEM_TITLE_MAX_LENGTH = 80;
-export const CALENDAR_DESCRIPTION_MAX_LENGTH = 600;
+export const CALENDAR_DESCRIPTION_MAX_LENGTH = 2000;
 
 export const CONTENT_TYPES: ContentType[] = [
   "post",
@@ -101,4 +101,25 @@ export function dayOfMonth(month: string, day: number): string {
 export function formatFullDate(day: string): string {
   const [year, month, dayNumber] = day.split("-").map(Number);
   return `${dayNumber} de ${MONTHS[month - 1].toLowerCase()} de ${year}`;
+}
+
+/** "2026-11-16", "2026-11-30" → "16 a 30 de novembro de 2026", pro detalhe
+ *  de uma campanha com intervalo (sempre no mesmo mês). */
+export function formatDateRange(start: string, end: string): string {
+  const [year, month, startDay] = start.split("-").map(Number);
+  const endDay = dayNumberOf(end);
+  return `${startDay} a ${endDay} de ${MONTHS[month - 1].toLowerCase()} de ${year}`;
+}
+
+/** Todos os dias de "start" até "end", inclusive (mesmo formato "YYYY-MM-DD").
+ *  Usado pra campanha: o item se repete em cada dia do intervalo. */
+export function daysBetween(start: string, end: string): string[] {
+  const [startDay] = [dayNumberOf(start)];
+  const [endDay] = [dayNumberOf(end)];
+  const month = start.slice(0, 7);
+  const days: string[] = [];
+  for (let day = startDay; day <= endDay; day++) {
+    days.push(`${month}-${String(day).padStart(2, "0")}`);
+  }
+  return days;
 }

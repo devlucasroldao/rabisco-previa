@@ -27,6 +27,7 @@ export type AdminCalendarDetail = {
 export type AdminCalendarItem = {
   id: string;
   day: string;
+  endDay: string | null;
   position: number;
   contentType: ContentType;
   title: string;
@@ -90,7 +91,7 @@ export async function getCalendar(
   const { data, error } = await supabase
     .from("calendars")
     .select(
-      "id, title, month, token, active, client:clients!inner(id, name, handle), calendar_items(id, day, position, content_type, title, description)",
+      "id, title, month, token, active, client:clients!inner(id, name, handle), calendar_items(id, day, end_day, position, content_type, title, description)",
     )
     .eq("id", id)
     .order("day", { referencedTable: "calendar_items" })
@@ -107,6 +108,7 @@ export async function getCalendar(
         calendar_items: {
           id: string;
           day: string;
+          end_day: string | null;
           position: number;
           content_type: ContentType;
           title: string;
@@ -129,6 +131,7 @@ export async function getCalendar(
     items: data.calendar_items.map((item) => ({
       id: item.id,
       day: item.day,
+      endDay: item.end_day,
       position: item.position,
       contentType: item.content_type,
       title: item.title,

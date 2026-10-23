@@ -8,8 +8,10 @@ import {
   CONTENT_TYPE_LABEL,
   dayNumberOf,
   dayOfMonth,
+  daysBetween,
   daysInMonth,
   firstWeekdayOf,
+  formatDateRange,
   formatFullDate,
   formatMonthYear,
   WEEKDAYS,
@@ -18,12 +20,17 @@ import {
 import type { Calendar, CalendarItem } from "@/lib/types";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 
+// Campanha com dia final repete em cada dia do intervalo: o mesmo item
+// aparece na grade do mês e na lista em todo dia entre `day` e `endDay`.
 function groupByDay(items: CalendarItem[]): Map<string, CalendarItem[]> {
   const groups = new Map<string, CalendarItem[]>();
   for (const item of items) {
-    const existing = groups.get(item.day);
-    if (existing) existing.push(item);
-    else groups.set(item.day, [item]);
+    const occurrences = item.endDay ? daysBetween(item.day, item.endDay) : [item.day];
+    for (const day of occurrences) {
+      const existing = groups.get(day);
+      if (existing) existing.push(item);
+      else groups.set(day, [item]);
+    }
   }
   return groups;
 }
@@ -148,7 +155,11 @@ function Item({ item }: { item: CalendarItem }) {
               </div>
               <div className="flex gap-2 text-[12px]">
                 <dt className="w-16 shrink-0 text-muted">Data</dt>
-                <dd className="font-medium">{formatFullDate(item.day)}</dd>
+                <dd className="font-medium">
+                  {item.endDay
+                    ? formatDateRange(item.day, item.endDay)
+                    : formatFullDate(item.day)}
+                </dd>
               </div>
             </dl>
             <p className="text-[13px] leading-[1.6] whitespace-pre-line">

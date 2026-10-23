@@ -4,7 +4,7 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { deleteCalendarItem, saveCalendarItem } from "@/app/admin/actions";
-import { ContentTypeBadge } from "@/components/content-type-badge";
+import { ContentTypeBadge, ContentTypeIcon } from "@/components/content-type-badge";
 import type { AdminCalendarItem } from "@/lib/admin-calendar-data";
 import {
   CALENDAR_DESCRIPTION_MAX_LENGTH,
@@ -13,9 +13,11 @@ import {
   CONTENT_TYPE_LABEL,
   dayNumberOf,
   dayOfMonth,
+  daysBetween,
   daysInMonth,
   weekdayOf,
 } from "@/lib/calendar-constants";
+import type { ContentType } from "@/lib/types";
 import { ConfirmDialog } from "./primitives/confirm-dialog";
 import { EmptyState } from "./primitives/empty-state";
 import {
@@ -26,12 +28,17 @@ import {
   primaryButtonClass,
 } from "./ui";
 
+// Campanha com dia final repete nos dias do intervalo — só na exibição, o
+// item no banco continua sendo um só (editar/excluir valem em qualquer dia).
 function groupByDay(items: AdminCalendarItem[]): Map<string, AdminCalendarItem[]> {
   const groups = new Map<string, AdminCalendarItem[]>();
   for (const item of items) {
-    const existing = groups.get(item.day);
-    if (existing) existing.push(item);
-    else groups.set(item.day, [item]);
+    const occurrences = item.endDay ? daysBetween(item.day, item.endDay) : [item.day];
+    for (const day of occurrences) {
+      const existing = groups.get(day);
+      if (existing) existing.push(item);
+      else groups.set(day, [item]);
+    }
   }
   return groups;
 }
@@ -51,16 +58,25 @@ function ItemForm({
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [contentType, setContentType] = useState<ContentType | "">(
+    editing?.contentType ?? "",
+  );
   const total = daysInMonth(month);
   const days = Array.from({ length: total }, (_, index) => index + 1);
 
   function handleSubmit(formData: FormData) {
     setError(null);
     startTransition(async () => {
+      const rawEndDay = formData.get("endDay");
+      const endDay =
+        rawEndDay && String(rawEndDay)
+          ? dayOfMonth(month, Number(rawEndDay))
+          : "";
       const result = await saveCalendarItem({
         calendarId,
         itemId: editing?.id,
         day: dayOfMonth(month, Number(formData.get("day"))),
+        endDay,
         contentType: String(formData.get("contentType") ?? ""),
         title: String(formData.get("title") ?? ""),
         description: String(formData.get("description") ?? ""),
@@ -69,6 +85,7 @@ function ItemForm({
         setError(result.error);
       } else {
         formRef.current?.reset();
+        setContentType("");
         onDone();
         toast.success(editing ? "Item atualizado." : "Item adicionado.");
       }
@@ -100,23 +117,52 @@ function ItemForm({
             ))}
           </select>
         </label>
-        <label className="w-40 text-[13px] font-semibold">
+        {contentType === "campanha" && (
+          <label className="w-28 text-[13px] font-semibold">
+            Dia final{" "}
+            <span className="font-normal text-fg-muted">· opcional</span>
+            <select
+              name="endDay"
+              defaultValue={editing?.endDay ? dayNumberOf(editing.endDay) : ""}
+              className={inputClass}
+            >
+              <option value="">—</option>
+              {days.map((day) => (
+                <option key={day} value={day}>
+                  {day} · {weekdayOf(dayOfMonth(month, day))}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label className="w-44 text-[13px] font-semibold">
           Tipo
-          <select
-            name="contentType"
-            required
-            defaultValue={editing?.contentType ?? ""}
-            className={inputClass}
-          >
-            <option value="" disabled>
-              Selecione
-            </option>
-            {CONTENT_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {CONTENT_TYPE_LABEL[type]}
+          <span className="relative block">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-fg-muted"
+            >
+              {contentType && <ContentTypeIcon type={contentType} size={15} />}
+            </span>
+            <select
+              name="contentType"
+              required
+              value={contentType}
+              onChange={(event) =>
+                setContentType(event.target.value as ContentType)
+              }
+              className={`${inputClass} ${contentType ? "pl-8" : ""}`}
+            >
+              <option value="" disabled>
+                Selecione
               </option>
-            ))}
-          </select>
+              {CONTENT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {CONTENT_TYPE_LABEL[type]}
+                </option>
+              ))}
+            </select>
+          </span>
         </label>
         <label className="min-w-56 flex-1 text-[13px] font-semibold">
           Título
@@ -138,11 +184,11 @@ function ItemForm({
         </span>
         <textarea
           name="description"
-          rows={3}
+          rows={8}
           maxLength={CALENDAR_DESCRIPTION_MAX_LENGTH}
           defaultValue={editing?.description ?? ""}
           placeholder="Contexto, referências, o que precisa ser aprovado…"
-          className={`${inputClass} resize-y leading-[1.5]`}
+          className={`${inputClass} min-h-40 resize-y leading-[1.5]`}
         />
       </label>
 
@@ -221,7 +267,14 @@ function ItemRow({
         <ContentTypeBadge type={item.contentType} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-medium">{item.title}</span>
+        <span className="block text-[14px] font-medium">
+          {item.title}
+          {item.endDay && (
+            <span className="ml-1.5 font-normal text-fg-muted">
+              · até {dayNumberOf(item.endDay)}
+            </span>
+          )}
+        </span>
         {item.description && (
           <span className="mt-0.5 block truncate text-[13px] text-fg-muted">
             {item.description}

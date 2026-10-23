@@ -44,9 +44,12 @@ export type ContentType =
   | "enquete";
 
 // description é opcional: só os itens que têm o que detalhar abrem pro cliente.
+// endDay é só pra campanha: quando preenchido, o item aparece em cada dia do
+// intervalo (day até endDay, inclusive).
 export type CalendarItem = {
   id: string;
   day: string; // "YYYY-MM-DD"
+  endDay: string | null; // "YYYY-MM-DD"
   position: number;
   contentType: ContentType;
   title: string;
